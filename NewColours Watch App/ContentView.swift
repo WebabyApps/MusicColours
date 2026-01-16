@@ -1052,104 +1052,116 @@ private struct GamePlayView: View {
     }
 
     var body: some View {
-        VStack(spacing: 6) {
-            HStack {
+        ZStack {
+            VStack(spacing: 6) {
+                HStack {
+                    // Removed top-left mute button as requested
+                    
+                    HStack(spacing: 4) {
+                        Text(scoreKey).font(.caption2)
+                        Text("\(score)").font(.caption2)
+                    }
+                    Spacer()
+                    HStack(spacing: 4) {
+                        Text(levelKey).font(.caption2)
+                        Text("\(level)").font(.caption2)
+                    }
+                    HStack(spacing: 4) {
+                        Image(systemName: "timer")
+                        Text("\(Int(max(0, levelTimeRemaining)))s")
+                    }
+                    .font(.caption2)
+                    HStack(spacing: 2) {
+                        Image(systemName: "xmark.circle")
+                        Text("\(strikesRemaining)")
+                    }.font(.caption2)
+                }
+                .padding(.horizontal, 6)
+
+                // Target indicator with ring countdown
+                ZStack {
+                    Circle()
+                        .stroke(.white.opacity(0.35), lineWidth: 3)
+                        .frame(width: 90, height: 90)
+                        .scaleEffect(beatPulse ? 1.08 : 0.92)
+                        .opacity(beatPulse ? 0.55 : 0.2)
+                        .animation(.easeOut(duration: 0.18), value: beatPulse)
+                    Circle()
+                        .fill((giftAvailable ? Color.pink : target.color).gradient)
+                        .frame(width: 70, height: 70)
+                        .shadow(color: (giftAvailable ? Color.pink : target.color).opacity(0.5), radius: 6, x: 0, y: 2)
+                    Circle()
+                        .trim(from: 0, to: max(0.01, CGFloat(timeRemaining)))
+                        .stroke(.white.opacity(0.9), style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .frame(width: 76, height: 76)
+                        .opacity(0.9)
+                    if giftAvailable {
+                        let bonusColor = upcomingBonus.map { color(for: $0) } ?? Color.pink
+                        if upcomingBonus == .deadly {
+                            Image(systemName: "gift.fill")
+                                .symbolRenderingMode(.palette)
+                                .foregroundStyle(.white, .black)
+                                .background(
+                                    Circle()
+                                        .fill(bonusColor)
+                                        .frame(width: 34, height: 34)
+                                )
+                                .shadow(radius: 2)
+                                .scaleEffect(beatPulse ? 1.08 : 0.95)
+                                .animation(.easeOut(duration: 0.2), value: beatPulse)
+                        } else {
+                            Image(systemName: "gift.fill")
+                                .foregroundStyle(.white)
+                                .background(
+                                    Circle()
+                                        .fill(bonusColor)
+                                        .frame(width: 34, height: 34)
+                                )
+                                .shadow(radius: 2)
+                                .scaleEffect(beatPulse ? 1.08 : 0.95)
+                                .animation(.easeOut(duration: 0.2), value: beatPulse)
+                        }
+                    } else {
+                        Text(nameKey(for: target))
+                            .font(.caption2).bold()
+                            .foregroundStyle(.black.opacity(0.8))
+                    }
+                }
+                .modifier(ShakeEffect(trigger: shakeTrigger))
+                .padding(.vertical, 4)
+
+                // Color grid for taps (watch-friendly big buttons)
+                Grid(horizontalSpacing: 4, verticalSpacing: 4) {
+                    GridRow {
+                        ForEach(colors.prefix(2)) { c in
+                            ColorButton(color: c, action: { onTapColor(c) })
+                        }
+                    }
+                    GridRow {
+                        ForEach(colors.suffix(from: min(2, colors.count))) { c in
+                            ColorButton(color: c, action: { onTapColor(c) })
+                        }
+                    }
+                }
+                .padding(.horizontal, 2)
+            }
+            // Center-left mute button overlay
+            VStack {
+                Spacer()
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .leading) {
                 Button(action: onToggleMute) {
                     Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                        .font(.caption2)
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 28, height: 28)
+                        .background(Circle().fill(.ultraThinMaterial))
                 }
-                .buttonStyle(.bordered)
-                .tint(.white)
-                .foregroundStyle(.white)
-                
-                HStack(spacing: 4) {
-                    Text(scoreKey).font(.caption2)
-                    Text("\(score)").font(.caption2)
-                }
-                Spacer()
-                HStack(spacing: 4) {
-                    Text(levelKey).font(.caption2)
-                    Text("\(level)").font(.caption2)
-                }
-                HStack(spacing: 4) {
-                    Image(systemName: "timer")
-                    Text("\(Int(max(0, levelTimeRemaining)))s")
-                }
-                .font(.caption2)
-                HStack(spacing: 2) {
-                    Image(systemName: "xmark.circle")
-                    Text("\(strikesRemaining)")
-                }.font(.caption2)
+                .buttonStyle(.plain)
+                .padding(.leading, 4)
             }
-            .padding(.horizontal, 6)
-
-            // Target indicator with ring countdown
-            ZStack {
-                Circle()
-                    .stroke(.white.opacity(0.35), lineWidth: 3)
-                    .frame(width: 90, height: 90)
-                    .scaleEffect(beatPulse ? 1.08 : 0.92)
-                    .opacity(beatPulse ? 0.55 : 0.2)
-                    .animation(.easeOut(duration: 0.18), value: beatPulse)
-                Circle()
-                    .fill((giftAvailable ? Color.pink : target.color).gradient)
-                    .frame(width: 70, height: 70)
-                    .shadow(color: (giftAvailable ? Color.pink : target.color).opacity(0.5), radius: 6, x: 0, y: 2)
-                Circle()
-                    .trim(from: 0, to: max(0.01, CGFloat(timeRemaining)))
-                    .stroke(.white.opacity(0.9), style: StrokeStyle(lineWidth: 4, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-                    .frame(width: 76, height: 76)
-                    .opacity(0.9)
-                if giftAvailable {
-                    let bonusColor = upcomingBonus.map { color(for: $0) } ?? Color.pink
-                    if upcomingBonus == .deadly {
-                        Image(systemName: "gift.fill")
-                            .symbolRenderingMode(.palette)
-                            .foregroundStyle(.white, .black)
-                            .background(
-                                Circle()
-                                    .fill(bonusColor)
-                                    .frame(width: 34, height: 34)
-                            )
-                            .shadow(radius: 2)
-                            .scaleEffect(beatPulse ? 1.08 : 0.95)
-                            .animation(.easeOut(duration: 0.2), value: beatPulse)
-                    } else {
-                        Image(systemName: "gift.fill")
-                            .foregroundStyle(.white)
-                            .background(
-                                Circle()
-                                    .fill(bonusColor)
-                                    .frame(width: 34, height: 34)
-                            )
-                            .shadow(radius: 2)
-                            .scaleEffect(beatPulse ? 1.08 : 0.95)
-                            .animation(.easeOut(duration: 0.2), value: beatPulse)
-                    }
-                } else {
-                    Text(nameKey(for: target))
-                        .font(.caption2).bold()
-                        .foregroundStyle(.black.opacity(0.8))
-                }
-            }
-            .modifier(ShakeEffect(trigger: shakeTrigger))
-            .padding(.vertical, 4)
-
-            // Color grid for taps (watch-friendly big buttons)
-            Grid(horizontalSpacing: 6, verticalSpacing: 6) {
-                GridRow {
-                    ForEach(colors.prefix(2)) { c in
-                        ColorButton(color: c, action: { onTapColor(c) })
-                    }
-                }
-                GridRow {
-                    ForEach(colors.suffix(from: min(2, colors.count))) { c in
-                        ColorButton(color: c, action: { onTapColor(c) })
-                    }
-                }
-            }
-            .padding(.horizontal, 4)
         }
         .padding(.vertical, 4)
     }
@@ -1166,16 +1178,16 @@ private struct ColorButton: View {
             action()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { pressed = false }
         } label: {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(color.color)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10).stroke(.white.opacity(0.2), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.2), lineWidth: 1)
                 )
                 .shadow(color: .black.opacity(0.25), radius: 3, x: 0, y: 2)
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .aspectRatio(1, contentMode: .fit)
+        .aspectRatio(1.1, contentMode: .fit)
         .scaleEffect(pressed ? 0.95 : 1.0)
         .animation(.spring(response: 0.25, dampingFraction: 0.7), value: pressed)
     }
