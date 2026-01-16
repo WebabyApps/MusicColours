@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1754A22C2F1966DB00E7EA95 /* ControlPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1754A22B2F1966DB00E7EA95 /* ControlPanelView.swift */; };
 		17A672A72F17CA4100DE309B /* NewColours Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 17A672A62F17CA4100DE309B /* NewColours Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -35,6 +36,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		1754A22B2F1966DB00E7EA95 /* ControlPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ControlPanelView.swift; sourceTree = "<group>"; };
 		17A672A02F17CA4100DE309B /* NewColours.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NewColours.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		17A672A62F17CA4100DE309B /* NewColours Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "NewColours Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -63,6 +65,7 @@
 			children = (
 				17A672AA2F17CA4100DE309B /* NewColours Watch App */,
 				17A672A12F17CA4100DE309B /* Products */,
+				1754A22B2F1966DB00E7EA95 /* ControlPanelView.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -179,6 +182,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1754A22C2F1966DB00E7EA95 /* ControlPanelView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

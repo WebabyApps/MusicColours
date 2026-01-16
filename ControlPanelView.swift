@@ -73,26 +73,19 @@ struct ControlPanelView: View {
                         .foregroundStyle(.primary)
                 }
 
-                // Zamiast "power" — selektor poziomu trudności
-                Menu {
-                    ForEach(Difficulty.allCases) { level in
-                        Button(action: {
-                            difficulty = level
-                            failuresLeft = level.maxFailures
-                            onDifficultyChanged(level)
-                        }) {
-                            Label(level.title, systemImage: level.iconName)
+                // Zamiast "power" — selektor poziomu trudności (watchOS-friendly)
+                VStack {
+                    Picker("", selection: $difficulty) {
+                        ForEach(Difficulty.allCases) { level in
+                            Text(level.title).tag(level)
                         }
                     }
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "flag.checkered")
-                        Text(difficulty.title)
-                    }
-                    .font(.system(size: 16, weight: .semibold))
+                    .labelsHidden()
                     .frame(height: 44)
-                    .padding(.horizontal, 12)
-                    .foregroundStyle(.primary)
+                }
+                .onChange(of: difficulty) { newValue in
+                    failuresLeft = newValue.maxFailures
+                    onDifficultyChanged(newValue)
                 }
             }
 
@@ -103,7 +96,7 @@ struct ControlPanelView: View {
         }
         .padding(12)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .shadow(radius: 2, y: 1)
+        .shadow(radius: 2, x: 0, y: 1)
     }
 }
 
