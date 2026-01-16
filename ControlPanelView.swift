@@ -4,15 +4,15 @@ struct ControlPanelView: View {
     enum Difficulty: String, CaseIterable, Identifiable {
         case easy, medium, hard
         var id: String { rawValue }
-
+        
         var title: String {
             switch self {
-            case .easy: return "Najłatwiejszy"
+            case .easy: return "Łatwy"
             case .medium: return "Średni"
             case .hard: return "Trudny"
             }
         }
-
+        
         var maxFailures: Int {
             switch self {
             case .easy: return 20
@@ -20,12 +20,35 @@ struct ControlPanelView: View {
             case .hard: return 3
             }
         }
-
+        
         var iconName: String {
             switch self {
-            case .easy: return "tortoise"
-            case .medium: return "gauge.medium"
-            case .hard: return "flame"
+            case .easy: return "tortoise.fill"
+            case .medium: return "speedometer"
+            case .hard: return "flame.fill"
+            }
+        }
+        
+        var next: Difficulty {
+            switch self {
+            case .easy: return .medium
+            case .medium: return .hard
+            case .hard: return .easy
+            }
+        }
+        
+        var timeLimitSeconds: Int? {
+            switch self {
+            case .easy: return 240
+            case .medium: return 120
+            case .hard: return nil
+            }
+        }
+        
+        var cyclesToWin: Int? {
+            switch self {
+            case .easy, .medium: return nil
+            case .hard: return 4
             }
         }
     }
@@ -73,26 +96,34 @@ struct ControlPanelView: View {
                         .foregroundStyle(.primary)
                 }
 
-                // Zamiast "power" — selektor poziomu trudności (watchOS-friendly)
-                VStack {
-                    Picker("", selection: $difficulty) {
-                        ForEach(Difficulty.allCases) { level in
-                            Text(level.title).tag(level)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(height: 44)
-                }
-                .onChange(of: difficulty) { newValue in
-                    failuresLeft = newValue.maxFailures
-                    onDifficultyChanged(newValue)
+                // Przycisk zmiany poziomu (tap-cykl)
+                Button(action: {
+                    difficulty = difficulty.next
+                    failuresLeft = difficulty.maxFailures
+                    onDifficultyChanged(difficulty)
+                }) {
+                    Image(systemName: difficulty.iconName)
+                        .font(.system(size: 22, weight: .semibold))
+                        .frame(width: 52, height: 52)
+                        .foregroundStyle(.primary)
+                        .background(.thinMaterial, in: Circle())
                 }
             }
 
-            // Etykieta statusu z pozostałymi próbami
-            Text("Pozostałe próby: \(failuresLeft)")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+            VStack(spacing: 4) {
+                Text("Pozostałe próby: \(failuresLeft)")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                if let seconds = difficulty.timeLimitSeconds {
+                    Text("Limit czasu: \(seconds / 60) min")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                } else if let cycles = difficulty.cyclesToWin {
+                    Text("Warunek: \(cycles) cykle koloru")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
         .padding(12)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))

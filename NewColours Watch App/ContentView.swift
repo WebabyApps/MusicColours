@@ -355,6 +355,7 @@ struct ContentView: View {
     @State private var selectedTrack: String = "track1" // default changed to first free track
     @State private var isEstimatingBPM: Bool = false
     @AppStorage("appLanguage") private var appLanguageRaw: String = "pl"
+    @AppStorage("isMuted") private var isMuted: Bool = false
     @State private var path = NavigationPath()
 
     @State private var showTrackBanner: Bool = false
@@ -408,6 +409,28 @@ struct ContentView: View {
     
     // Added shakeTrigger for shake animation on wrong tap
     @State private var shakeTrigger: Int = 0
+
+    // Difficulty selection and rules
+    enum Difficulty: CaseIterable { case easy, medium, hard
+        var icon: String {
+            switch self { case .easy: return "tortoise.fill"; case .medium: return "speedometer"; case .hard: return "flame.fill" }
+        }
+        var allowedMistakes: Int {
+            switch self { case .easy: return 20; case .medium: return 10; case .hard: return 3 }
+        }
+        var timeLimitSeconds: Int? {
+            switch self { case .easy: return 240; case .medium: return 120; case .hard: return nil }
+        }
+        var cyclesToWin: Int? { self == .hard ? 4 : nil }
+        var title: String {
+            switch self { case .easy: return "Łatwy"; case .medium: return "Średni"; case .hard: return "Trudny" }
+        }
+        var next: Difficulty {
+            switch self { case .easy: return .medium; case .medium: return .hard; case .hard: return .easy }
+        }
+    }
+    @State private var difficulty: Difficulty = .easy
+    @State private var colorCyclesCompleted: Int = 0
 
     private var titleKey: LocalizedStringKey { "music_colours_title" }
     private var subtitleKey: LocalizedStringKey { "subtitle" }
@@ -468,7 +491,11 @@ struct ContentView: View {
                             } else {
                                 startAudioIfAvailable()
                             }
-                        }
+                        },
+                        difficulty: $difficulty,
+                        onCycleDifficulty: { difficulty = difficulty.next },
+                        isMuted: $isMuted,
+                        onToggleMuteState: { toggleMute() }
                     )
                 case .playing:
                     GamePlayView(
@@ -485,7 +512,9 @@ struct ContentView: View {
                         levelTimeRemaining: levelTimeRemaining,
                         strikesRemaining: strikesRemaining,
                         shakeTrigger: shakeTrigger,
-                        upcomingBonus: upcomingBonus
+                        upcomingBonus: upcomingBonus,
+                        isMuted: isMuted,
+                        onToggleMute: { toggleMute() }
                     )
                     .transition(.scale.combined(with: .opacity))
                 case .gameOver:
@@ -524,7 +553,7 @@ struct ContentView: View {
                 setupAudioSession()
                 loadAvailableTracks()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    if audioPlayer?.isPlaying != true, !availableTracks.isEmpty {
+                    if audioPlayer?.isPlaying != true, !availableTracks.isEmpty, !isMuted {
                         print("[Audio] Auto-play on appear:", selectedTrack)
                         startAudioIfAvailable()
                     }
@@ -541,12 +570,12 @@ struct ContentView: View {
             .onChange(of: gameState) { _, newValue in
                 if newValue == .playing {
                     updateBeatInterval(syncedToBPM: audioPlayer != nil)
-                    resetLevelTimer()
+                    if difficulty.timeLimitSeconds != nil { resetLevelTimer() }
                     startBeatLoop()
                 } else {
                     stopBeatLoop()
                     if newValue == .menu {
-                        if audioPlayer?.isPlaying != true, !availableTracks.isEmpty {
+                        if audioPlayer?.isPlaying != true, !availableTracks.isEmpty, !isMuted {
                             print("[Audio] Auto-play on menu entry:", selectedTrack)
                             startAudioIfAvailable()
                         }
@@ -556,7 +585,9 @@ struct ContentView: View {
             .onChange(of: selectedTrack) { _, newValue in
                 print("[Audio] Track changed to:", newValue)
                 stopAudio()
-                startAudioIfAvailable()
+                if !isMuted {
+                    startAudioIfAvailable()
+                }
             }
             .onReceive(Timer.publish(every: 1/30, on: .main, in: .common).autoconnect()) { _ in
                 // Background animation handled by TimelineView
@@ -566,7 +597,11 @@ struct ContentView: View {
                 timeRemaining = max(0, beatInterval - elapsed)
                 levelTimeRemaining = max(0, levelTimeRemaining - (1.0/30.0))
                 if timeRemaining == 0 { endGame() }
-                if levelTimeRemaining == 0 { endGame() }
+                if difficulty.timeLimitSeconds != nil {
+                    if levelTimeRemaining == 0 { endGame() }
+                } else {
+                    // Hard: check cycles completion handled elsewhere
+                }
             }
         }
     }
@@ -592,8 +627,8 @@ struct ContentView: View {
         if availableTracks.isEmpty { availableTracks = freeTracks }
         if !availableTracks.contains(selectedTrack) { selectedTrack = availableTracks.first ?? "track1" }
 
-        // Auto-play the first available track if nothing is playing yet
-        if audioPlayer?.isPlaying != true, !availableTracks.isEmpty {
+        // Auto-play the first available track if nothing is playing yet and not muted
+        if audioPlayer?.isPlaying != true, !availableTracks.isEmpty, !isMuted {
             print("[Audio] Auto-playing initial track:", selectedTrack)
             startAudioIfAvailable()
         }
@@ -845,6 +880,12 @@ private struct MenuView: View {
     let isPlaying: Bool
     var onToggleMute: () -> Void
 
+    @Binding var difficulty: ContentView.Difficulty
+    var onCycleDifficulty: () -> Void
+    
+    @Binding var isMuted: Bool
+    var onToggleMuteState: () -> Void
+
     var body: some View {
         ZStack {
             GeometryReader { proxy in
@@ -914,8 +955,8 @@ private struct MenuView: View {
                 // Compact controls panel: updated with shared translucent background
                 HStack(spacing: 10) {
                     // Left: smaller mute
-                    Button(action: onToggleMute) {
-                        Image(systemName: isPlaying ? "speaker.wave.2.fill" : "speaker.slash.fill")
+                    Button(action: onToggleMuteState) {
+                        Image(systemName: isMuted ? "speaker.slash.fill" : (isPlaying ? "speaker.wave.2.fill" : "speaker.slash.fill"))
                             .font(.system(size: 14, weight: .semibold))
                             .frame(width: 26, height: 26)
                     }
@@ -942,24 +983,24 @@ private struct MenuView: View {
                     .tint(.white)
                     .foregroundStyle(.white)
 
-                    // Right: power off (same size as mute)
-                    Button(action: {
-                        #if os(watchOS)
-                        WKExtension.shared().rootInterfaceController?.dismiss()
-                        WKExtension.shared().scheduleSnapshotRefresh(withPreferredDate: Date(), userInfo: nil) { _ in }
-                        #endif
-                    }) {
-                        Image(systemName: "power")
-                            .font(.system(size: 14, weight: .semibold))
-                            .frame(width: 26, height: 26)
+                    // Right: difficulty cycle (tap-cykl)
+                    Button(action: onCycleDifficulty) {
+                        Image(systemName: difficulty.icon)
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(width: 28, height: 28)
                     }
                     .buttonStyle(.bordered)
                     .tint(.white)
                     .foregroundStyle(.white)
+                    .accessibilityLabel(Text("Poziom: \(difficulty.title)"))
                 }
                 .padding(6)
                 .background(.ultraThinMaterial, in: Capsule())
                 .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
+                
+                Text("Poziom: \(difficulty.title)")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.8))
                 
                 Spacer(minLength: 8)
             }
@@ -985,6 +1026,9 @@ private struct GamePlayView: View {
     let strikesRemaining: Int
     let shakeTrigger: Int
     let upcomingBonus: ContentView.BonusType?
+    
+    let isMuted: Bool
+    let onToggleMute: () -> Void
 
     private func nameKey(for color: GameColor) -> LocalizedStringKey {
         switch color {
@@ -1010,6 +1054,14 @@ private struct GamePlayView: View {
     var body: some View {
         VStack(spacing: 6) {
             HStack {
+                Button(action: onToggleMute) {
+                    Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                        .font(.caption2)
+                }
+                .buttonStyle(.bordered)
+                .tint(.white)
+                .foregroundStyle(.white)
+                
                 HStack(spacing: 4) {
                     Text(scoreKey).font(.caption2)
                     Text("\(score)").font(.caption2)
@@ -1481,7 +1533,15 @@ private extension ContentView {
         score = 0
         level = 1
         availableColors = GameColor.basic
-        strikesRemaining = 3
+        // Set strikes and time by difficulty
+        strikesRemaining = difficulty.allowedMistakes
+        if let seconds = difficulty.timeLimitSeconds {
+            levelTimeRemaining = TimeInterval(seconds)
+        } else {
+            // Hard: no time limit, win by cycles
+            levelTimeRemaining = .infinity
+            colorCyclesCompleted = 0
+        }
         correctStreak = 0
         // Changed here as requested:
         nextGiftIn = Int.random(in: 2...3)
@@ -1504,7 +1564,7 @@ private extension ContentView {
 
     func startBeatLoop() {
         updateBeatInterval(syncedToBPM: true)
-        resetLevelTimer()
+        if difficulty.timeLimitSeconds != nil { resetLevelTimer() }
         lastBeatDate = Date()
         timeRemaining = beatInterval
         beatTimer?.invalidate()
@@ -1521,6 +1581,16 @@ private extension ContentView {
         currentTarget = availableColors.randomElement() ?? .red
         lastBeatDate = Date()
         timeRemaining = beatInterval
+        
+        // Count color cycles for hard mode
+        if difficulty == .hard {
+            colorCyclesCompleted += 1
+            if let goal = difficulty.cyclesToWin, colorCyclesCompleted >= goal {
+                endGame()
+                return
+            }
+        }
+        
         if !newLevel { // if called by timer, missing tap ends game
             // No-op here; miss detection is handled by countdown reaching 0 in onReceive
         }
@@ -1649,7 +1719,7 @@ private extension ContentView {
             }
             // Speed up
             updateBeatInterval(syncedToBPM: audioPlayer != nil)
-            resetLevelTimer()
+            if difficulty.timeLimitSeconds != nil { resetLevelTimer() }
             if gameState == .playing { startBeatLoop() }
             // Change track on level up (cycle through free tracks if not premium)
             if !premiumUnlocked && !allowOneFreeCustomTrack {
@@ -1660,9 +1730,11 @@ private extension ContentView {
                     selectedTrack = freeTracks.first ?? selectedTrack
                 }
             }
-            // Restart audio with new track
+            // Restart audio with new track, respecting mute
             stopAudio()
-            startAudioIfAvailable()
+            if !isMuted {
+                startAudioIfAvailable()
+            }
             // giftAvailable = (Double.random(in: 0...1) < 0.5) && level >= 1
             /* gift spawning handled by streak logic */
         }
@@ -1681,12 +1753,23 @@ private extension ContentView {
         }
         // Adjust background speed relative to beat interval
         bgSpeed = max(4.0, min(12.0, 60.0 / max(0.5, beatInterval)))
-        if levelTimeRemaining == 0 { levelTimeRemaining = beatInterval * 40.0 }
+        if difficulty.timeLimitSeconds != nil {
+            if levelTimeRemaining == 0 { levelTimeRemaining = beatInterval * 40.0 }
+        }
     }
 
     func endGame() {
         gameState = .gameOver
         stopAudio()
+    }
+    
+    func toggleMute() {
+        isMuted.toggle()
+        if isMuted {
+            stopAudio()
+        } else {
+            startAudioIfAvailable()
+        }
     }
 }
 
@@ -1795,10 +1878,10 @@ private extension ContentView {
             }
             await MainActor.run {
                 isEstimatingBPM = false
-                startAudioIfAvailable()
+                if !isMuted { startAudioIfAvailable() }
                 if gameState == .playing {
                     updateBeatInterval(syncedToBPM: true)
-                    resetLevelTimer()
+                    if difficulty.timeLimitSeconds != nil { resetLevelTimer() }
                     startBeatLoop()
                 }
             }
