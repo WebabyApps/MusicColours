@@ -23,21 +23,21 @@ private struct FloatingNotesLayer: View {
         let noteCount = Int(4 + (sin(t / max(4.0, bgSpeed)) + 1) * 2)
         return ZStack {
             ForEach(0..<noteCount, id: \.self) { i in
-                let nt = t / max(5.0, bgSpeed * 0.9) + Double(i) * 0.7
+                let nt = t / max(4.0, bgSpeed * 0.6) + Double(i) * 0.95
                 let size = CGFloat(20 + (i % 5) * 4)
                 let baseOpacity = 0.08 + Double((i % 4)) * 0.03
                 let ampXBase = 40 + (i % 3) * 15
                 let ampYBase = 30 + (i % 4) * 12
-                let speedScale = CGFloat(12.0 / max(6.0, bgSpeed))
+                let speedScale = CGFloat(14.0 / max(5.0, bgSpeed))
                 let ampX = CGFloat(ampXBase) * speedScale
                 let ampY = CGFloat(ampYBase) * speedScale
                 let traj = i % 3
                 let sx = sin(nt)
                 let cx = cos(nt)
-                let s07 = sin(nt * 0.7 + 0.8)
-                let s05 = sin(nt * 0.5)
-                let c06 = cos(nt * 0.6)
-                let c08 = cos(nt * 0.8 + 0.5)
+                let s07 = sin(nt * 0.95 + 0.8)
+                let s05 = sin(nt * 0.8)
+                let c06 = cos(nt * 0.9)
+                let c08 = cos(nt * 1.1 + 0.5)
                 let x: CGFloat = {
                     switch traj {
                     case 0: return sx * ampX
@@ -54,8 +54,8 @@ private struct FloatingNotesLayer: View {
                 }()
                 Image(systemName: i % 2 == 0 ? "music.note" : "music.quarternote.3")
                     .font(.system(size: size, weight: .regular))
-                    .foregroundStyle(.white.opacity(baseOpacity))
-                    .rotationEffect(.degrees(sx * 12))
+                    .foregroundStyle(.white.opacity(min(0.22, baseOpacity + 0.05)))
+                    .rotationEffect(.degrees(sx * 22))
                     .offset(x: x, y: y)
             }
         }
@@ -360,6 +360,11 @@ struct ContentView: View {
 
     @State private var showTrackBanner: Bool = false
 
+    // Countdown overlay before starting the game
+    @State private var isCountingDown: Bool = false
+    @State private var countdownValue: Int = 3 // 3,2,1,0(Go)
+    @State private var countdownFrozenT: TimeInterval? = nil
+
     @State private var bgSpeed: Double = 8.0
 
     // New state properties added as requested
@@ -383,6 +388,9 @@ struct ContentView: View {
     @State private var upcomingBonus: BonusType? = nil
     @State private var deadlyGiftActive: Bool = false
 
+    // Added gift beats remaining state
+    @State private var giftBeatsRemaining: Int = 0
+
     // Splash related states
     @State private var showPulseVideo: Bool = true
     @State private var showFallingText: Bool = false
@@ -402,7 +410,7 @@ struct ContentView: View {
     @State private var beatPulse: Bool = false
 
     // Added strike system state
-    @State private var strikesRemaining: Int = 3
+    @State private var strikesRemaining: Int = 20
 
     // Added last popup text for differentiating +1/-1
     @State private var lastPopupText: String = "+1"
@@ -449,7 +457,12 @@ struct ContentView: View {
     var body: some View {
         NavigationStack(path: $path) {
             ZStack {
-                AnimatedDepthBackground(phase: backgroundPhase, colors: availableColors.map { $0.color }, bgSpeed: effectiveBgSpeed)
+                AnimatedDepthBackground(
+                    phase: backgroundPhase,
+                    colors: availableColors.map { $0.color },
+                    bgSpeed: effectiveBgSpeed,
+                    frozenTime: countdownFrozenT
+                )
                     .ignoresSafeArea()
                     .saturation(gameState == .gameOver ? 0.2 : 1.0)
                     .blur(radius: gameState == .gameOver ? 2 : 0)
@@ -476,7 +489,7 @@ struct ContentView: View {
                         availableTracks: availableTracks,
                         bpm: bpm,
                         isEstimatingBPM: isEstimatingBPM,
-                        startAction: startGame,
+                        startAction: startCountdown,
                         titleKey: titleKey,
                         subtitleKey: subtitleKey,
                         languageKey: languageKey,
@@ -514,7 +527,8 @@ struct ContentView: View {
                         shakeTrigger: shakeTrigger,
                         upcomingBonus: upcomingBonus,
                         isMuted: isMuted,
-                        onToggleMute: { toggleMute() }
+                        onToggleMute: { toggleMute() },
+                        onDismissSkull: { dismissSkull() }
                     )
                     .transition(.scale.combined(with: .opacity))
                 case .gameOver:
@@ -532,7 +546,7 @@ struct ContentView: View {
 
                 if showTrackBanner {
                     TrackBannerView(text: selectedTrack)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
                 if showPaywall {
@@ -542,6 +556,13 @@ struct ContentView: View {
                         showPaywall = false
                     })
                     .transition(.scale.combined(with: .opacity))
+                }
+
+                // Countdown overlay should appear on the gameplay screen
+                if gameState == .playing && isCountingDown {
+                    CountdownOverlayView(value: countdownValue)
+                        .transition(.opacity)
+                        .zIndex(50)
                 }
 
                 if gameState == .playing { BonusIndicators(invincibleUntil: invincibleUntil, slowBgUntil: slowBgUntil) }
@@ -569,6 +590,8 @@ struct ContentView: View {
             }
             .onChange(of: gameState) { _, newValue in
                 if newValue == .playing {
+                    // If we entered .playing only to show the countdown, do not start timers yet
+                    if isCountingDown { return }
                     updateBeatInterval(syncedToBPM: audioPlayer != nil)
                     if difficulty.timeLimitSeconds != nil { resetLevelTimer() }
                     startBeatLoop()
@@ -593,6 +616,7 @@ struct ContentView: View {
                 // Background animation handled by TimelineView
                 // Countdown update while playing
                 guard gameState == .playing else { return }
+                if isCountingDown { return }
                 let elapsed = Date().timeIntervalSince(lastBeatDate)
                 timeRemaining = max(0, beatInterval - elapsed)
                 levelTimeRemaining = max(0, levelTimeRemaining - (1.0/30.0))
@@ -604,6 +628,45 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Reset state for a fresh run (fixes timers ending immediately on replay)
+    private func resetRunState() {
+        // Stop any previous beat loop/timers first
+        stopBeatLoop()
+
+        // Reset core gameplay counters
+        score = 0
+        level = 1
+        colorCyclesCompleted = 0
+        correctStreak = 0
+        nextGiftIn = 0
+        giftAvailable = false
+        giftBeatsRemaining = 0
+        pendingBonus = nil
+        upcomingBonus = nil
+        deadlyGiftActive = false
+        invincibleUntil = nil
+        slowBgUntil = nil
+
+        // Reset strike/mistake system
+        strikesRemaining = difficulty.allowedMistakes
+        shakeTrigger = 0
+
+        // Reset timing so the first frame can’t immediately detect “timeRemaining == 0”
+        lastBeatDate = Date()
+        timeRemaining = beatInterval
+
+        // Reset level timer for modes that use it
+        if let limit = difficulty.timeLimitSeconds {
+            levelTimeRemaining = TimeInterval(limit)
+        } else {
+            // Hard mode: keep a sane non-negative value for UI (it is not used for end conditions)
+            levelTimeRemaining = 0
+        }
+
+        // Reset countdown freeze
+        countdownFrozenT = nil
     }
 
     func loadAvailableTracks() {
@@ -643,12 +706,13 @@ private struct AnimatedDepthBackground: View {
     var phase: CGFloat
     var colors: [Color]
     var bgSpeed: Double
+    var frozenTime: TimeInterval? = nil
 
     var body: some View {
         TimelineView(.animation) { timeline in
-            let t = timeline.date.timeIntervalSinceReferenceDate
-            let speed = max(4.0, bgSpeed)
-            let baseHue = (sin(t / speed) * 0.5 + 0.5)
+            let t = frozenTime ?? timeline.date.timeIntervalSinceReferenceDate
+            let speed = max(3.0, bgSpeed * 0.7)
+            let baseHue = (sin(t / (speed * 0.7)) * 0.5 + 0.5)
             let c1 = Color(hue: baseHue, saturation: 0.55, brightness: 0.85)
             let c2 = Color(hue: (baseHue + 0.08).truncatingRemainder(dividingBy: 1.0), saturation: 0.5, brightness: 0.75)
             let c3 = Color(hue: (baseHue + 0.16).truncatingRemainder(dividingBy: 1.0), saturation: 0.45, brightness: 0.7)
@@ -657,13 +721,13 @@ private struct AnimatedDepthBackground: View {
                 LinearGradient(colors: [c1, c2], startPoint: .topLeading, endPoint: .bottomTrailing)
                     .opacity(0.6)
                 ForEach(0..<3, id: \.self) { i in
-                    let ph = CGFloat(t / 10.0) + CGFloat(i) * 0.8
+                    let ph = CGFloat(t / 7.5) + CGFloat(i) * 0.9
                     Circle()
                         .fill(colors[i % 3])
                         .frame(width: 200, height: 200)
                         .blur(radius: 50)
                         .opacity(0.18)
-                        .offset(x: sin(ph) * 30, y: cos(ph * 0.9) * 24)
+                        .offset(x: sin(ph) * 38, y: cos(ph * 1.0) * 30)
                         .blendMode(.plusLighter)
                 }
                 FloatingNotesLayer(t: t, bgSpeed: speed, colors: colors)
@@ -728,6 +792,9 @@ private struct SplashView: View {
     @State private var hitPlayer: AVAudioPlayer? = nil
     @State private var showWordmark: Bool = false
     @State private var wordmarkOffset: CGFloat = -160
+
+    // Fine-tune the horizontal centering of the wordmark (positive moves right)
+    private let wordmarkXOffset: CGFloat = 6
     
     private func startWordmarkFalling() {
         // start z góry
@@ -772,7 +839,7 @@ private struct SplashView: View {
                     
                     WordmarkDrawView()
                         .frame(width: 220, height: 60)
-                        .offset(y: wordmarkOffset)
+                        .offset(x: wordmarkXOffset, y: wordmarkOffset)
                         .shadow(color: .black.opacity(0.4), radius: 8, x: 0, y: 6)
 
                     Spacer()
@@ -858,6 +925,53 @@ private struct SplashView: View {
 }
 
 // MARK: - Views
+
+private struct CountdownOverlayView: View {
+    let value: Int  // 3,2,1,0(Go)
+    @State private var scale: CGFloat = 0.35
+    @State private var opacity: Double = 0.0
+
+    private var label: String { value == 0 ? "GO" : "\(value)" }
+
+    var body: some View {
+        ZStack {
+            // Intercepts taps during countdown
+            Color.black.opacity(0.001).ignoresSafeArea()
+
+            Text(label)
+                .font(.system(size: 56, weight: .heavy, design: .rounded))
+                .foregroundStyle(
+                    LinearGradient(colors: [.white, .white.opacity(0.85)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                )
+                .shadow(color: .black.opacity(0.45), radius: 10, x: 0, y: 6)
+                .scaleEffect(scale)
+                .opacity(opacity)
+        }
+        .onAppear { animate() }
+        .onChange(of: value) { _, _ in animate() }
+    }
+
+    private func animate() {
+        // Reset then bounce in
+        scale = 0.35
+        opacity = 0.0
+        withAnimation(.interpolatingSpring(stiffness: 220, damping: 12)) {
+            scale = 1.0
+            opacity = 1.0
+        }
+        // Slight settle
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+            withAnimation(.spring(response: 0.18, dampingFraction: 0.6)) {
+                scale = 0.92
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.10) {
+                withAnimation(.spring(response: 0.22, dampingFraction: 0.75)) {
+                    scale = 1.0
+                }
+            }
+        }
+    }
+}
 
 private struct MenuView: View {
     @Binding var appLanguage: String
@@ -1029,6 +1143,12 @@ private struct GamePlayView: View {
     
     let isMuted: Bool
     let onToggleMute: () -> Void
+    
+    let onDismissSkull: () -> Void
+
+    // Added local animation state for skull shake and fade
+    @State private var skullShakeTrigger: Int = 0
+    @State private var skullFadeOut: Bool = false
 
     private func nameKey(for color: GameColor) -> LocalizedStringKey {
         switch color {
@@ -1099,17 +1219,28 @@ private struct GamePlayView: View {
                     if giftAvailable {
                         let bonusColor = upcomingBonus.map { color(for: $0) } ?? Color.pink
                         if upcomingBonus == .deadly {
-                            Image(systemName: "gift.fill")
-                                .symbolRenderingMode(.palette)
-                                .foregroundStyle(.white, .black)
-                                .background(
-                                    Circle()
-                                        .fill(bonusColor)
-                                        .frame(width: 34, height: 34)
-                                )
-                                .shadow(radius: 2)
-                                .scaleEffect(beatPulse ? 1.08 : 0.95)
-                                .animation(.easeOut(duration: 0.2), value: beatPulse)
+                            ZStack {
+                                Circle()
+                                    .fill(bonusColor)
+                                    .frame(width: 54, height: 54) // Increased from 34 to 54
+                                Text("☠︎")
+                                    .font(.system(size: 28, weight: .heavy)) // Increased from 16 to 28
+                                    .foregroundStyle(.white)
+                            }
+                            .shadow(radius: 2)
+                            .scaleEffect( (beatPulse ? 1.08 : 0.95) * (skullFadeOut ? 0.6 : 1.0) )
+                            .opacity(skullFadeOut ? 0.0 : 1.0)
+                            .animation(.easeOut(duration: 0.2), value: beatPulse)
+                            .modifier(ShakeEffect(trigger: skullShakeTrigger))
+                            .onTapGesture {
+                                // trigger shake + fade, then dismiss
+                                skullShakeTrigger += 1
+                                withAnimation(.easeOut(duration: 0.25)) { skullFadeOut = true }
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) {
+                                    onDismissSkull()
+                                    skullFadeOut = false
+                                }
+                            }
                         } else {
                             Image(systemName: "gift.fill")
                                 .foregroundStyle(.white)
@@ -1123,9 +1254,21 @@ private struct GamePlayView: View {
                                 .animation(.easeOut(duration: 0.2), value: beatPulse)
                         }
                     } else {
-                        Text(nameKey(for: target))
-                            .font(.caption2).bold()
-                            .foregroundStyle(.black.opacity(0.8))
+                        if let bonus = upcomingBonus, bonus == .deadly {
+                            ZStack {
+                                Circle()
+                                    .fill(Color.black)
+                                    .frame(width: 48, height: 48) // Increased from 34 to 48
+                                Text("☠︎")
+                                    .font(.system(size: 24, weight: .heavy)) // Increased from 14 to 24
+                                    .foregroundStyle(.white)
+                            }
+                            .shadow(radius: 2)
+                        } else {
+                            Text(nameKey(for: target))
+                                .font(.caption2).bold()
+                                .foregroundStyle(.black.opacity(0.8))
+                        }
                     }
                 }
                 .modifier(ShakeEffect(trigger: shakeTrigger))
@@ -1266,34 +1409,28 @@ private struct BonusIndicators: View {
 // MARK: - Track Banner View
 private struct TrackBannerView: View {
     let text: String
-    @State private var animate: Bool = false
 
     var body: some View {
-        GeometryReader { proxy in
-            let width = proxy.size.width
+        GeometryReader { _ in
             VStack {
-                Spacer()
                 ZStack {
                     Capsule(style: .continuous)
                         .fill(.ultraThinMaterial)
                         .frame(height: 28)
                         .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
-                    // Marquee text
-                    ZStack {
-                        Text(text)
-                            .font(.caption2).bold()
-                            .foregroundStyle(.white)
-                            .offset(x: animate ? -width : width)
-                            .animation(.linear(duration: 2.8), value: animate)
-                    }
-                    .clipped()
+
+                    // Use the same marquee behavior as on the main screen
+                    MarqueeText(text: text)
+                        .frame(height: 22)
+                        .padding(.horizontal, 10)
                 }
                 .padding(.horizontal, 8)
-                .padding(.bottom, 6)
+                .padding(.top, 6)
+
+                Spacer()
             }
-            .onAppear { animate = true }
+            .ignoresSafeArea(edges: .top)
         }
-        .ignoresSafeArea(edges: .bottom)
     }
 }
 
@@ -1541,7 +1678,46 @@ private extension ContentView {
         levelTimeRemaining = max(120.0, target)
     }
 
+    func startCountdown() {
+        guard !isCountingDown else { return }
+        // Only allow countdown from menu
+        guard gameState == .menu else { return }
+
+        // Start from a clean run every time
+        resetRunState()
+
+        // Switch to gameplay screen first
+        gameState = .playing
+
+        // Freeze animated background hues during countdown
+        countdownFrozenT = Date().timeIntervalSinceReferenceDate
+
+        isCountingDown = true
+        countdownValue = 3
+
+        // 3 -> 2 -> 1 -> GO (0)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { countdownValue = 2 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { countdownValue = 1 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            countdownValue = 0
+            WKInterfaceDevice.current().play(.success)
+        }
+
+        // Start the game shortly after showing GO
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.65) {
+            isCountingDown = false
+            countdownFrozenT = nil
+
+            // Ensure a fresh beat window so we can’t instantly end on stale timestamps
+            lastBeatDate = Date()
+            timeRemaining = beatInterval
+
+            startGame()
+        }
+    }
+
     func startGame() {
+        if isCountingDown { return }
         score = 0
         level = 1
         availableColors = GameColor.basic
@@ -1570,6 +1746,8 @@ private extension ContentView {
     }
 
     func restart() {
+        // Clean state so next Play starts from zero
+        resetRunState()
         gameState = .menu
         stopAudio()
     }
@@ -1583,11 +1761,23 @@ private extension ContentView {
         beatTimer = Timer.scheduledTimer(withTimeInterval: beatInterval, repeats: true) { _ in
             nextBeat()
             playTick()
+            // Decrement gift lifetime per beat
+            if giftAvailable {
+                if giftBeatsRemaining > 0 { giftBeatsRemaining -= 1 }
+                if giftBeatsRemaining <= 0 {
+                    giftAvailable = false
+                    upcomingBonus = nil
+                    deadlyGiftActive = false
+                }
+            }
             beatPulse.toggle()
         }
     }
 
-    func stopBeatLoop() { beatTimer?.invalidate(); beatTimer = nil }
+    func stopBeatLoop() {
+        beatTimer?.invalidate()
+        beatTimer = nil
+    }
 
     func nextBeat(newLevel: Bool = false) {
         currentTarget = availableColors.randomElement() ?? .red
@@ -1624,10 +1814,13 @@ private extension ContentView {
                 return
             }
             let roll = Double.random(in: 0...1)
-            if roll < 0.25 { pendingBonus = .freeTrack }
-            else if roll < 0.5 { pendingBonus = .invincibility }
-            else if roll < 0.75 { pendingBonus = .slowBackground }
-            else { pendingBonus = .addTime }
+            if roll < 0.30 { // ~30% chance deadly gift
+                upcomingBonus = .deadly
+                deadlyGiftActive = true
+            } else if roll < 0.50 { upcomingBonus = .freeTrack }
+            else if roll < 0.70 { upcomingBonus = .invincibility }
+            else if roll < 0.85 { upcomingBonus = .slowBackground }
+            else { upcomingBonus = .addTime }
             print("[Bonus] Gift collected: \(String(describing: pendingBonus))")
             applyPendingBonus()
             giftAvailable = false
@@ -1645,6 +1838,7 @@ private extension ContentView {
             correctStreak += 1
             score += 1
             lastPopupText = "+1"
+            WKInterfaceDevice.current().play(.click)  // <--- Added subtle haptic here
             
             // Show hit effect
             showHitEffect = true
@@ -1665,31 +1859,47 @@ private extension ContentView {
                 print("[Bonus] Next gift in:", nextGiftIn)
                 // Pre-roll a bonus type for preview color
                 let roll = Double.random(in: 0...1)
-                if roll < 0.15 { // ~15% chance deadly gift
+                if roll < 0.30 { // ~30% chance deadly gift
                     upcomingBonus = .deadly
                     deadlyGiftActive = true
-                } else if roll < 0.35 { upcomingBonus = .freeTrack }
-                else if roll < 0.6 { upcomingBonus = .invincibility }
-                else if roll < 0.8 { upcomingBonus = .slowBackground }
+                } else if roll < 0.50 { upcomingBonus = .freeTrack }
+                else if roll < 0.70 { upcomingBonus = .invincibility }
+                else if roll < 0.85 { upcomingBonus = .slowBackground }
                 else { upcomingBonus = .addTime }
+                giftBeatsRemaining = 6 // Increased from 3 to 6
             }
             
             advanceDifficultyIfNeeded()
             nextBeat()
             playSuccess()
         } else {
-            // Wrong tap handling: penalty and strikes
-            if score > 0 { score -= 1 }
-            lastPopupText = "-1"
-            // Show -1 popup
-            scorePopups.append(ScorePopup())
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                if !scorePopups.isEmpty { _ = scorePopups.removeFirst() }
+            // Wrong tap handling: difficulty-based penalty and strikes
+            let penalty: Int = {
+                switch difficulty {
+                case .easy: return 0
+                case .medium: return 1
+                case .hard: return 2
+                }
+            }()
+            if penalty > 0 {
+                let applied = min(penalty, score)
+                score -= applied
+                if applied > 0 {
+                    lastPopupText = "-\(applied)"
+                    // Show -1 popup only when there is an actual penalty
+                    scorePopups.append(ScorePopup())
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                        if !scorePopups.isEmpty { _ = scorePopups.removeFirst() }
+                    }
+                }
+            } else {
+                // Easy: no penalty and no popup
             }
             strikesRemaining -= 1
             
             // Trigger shake animation on wrong tap
             shakeTrigger += 1
+            playMiss() // <-- Inserted playMiss call here before checking strikes
             
             if strikesRemaining <= 0 {
                 endGame()
@@ -1775,6 +1985,14 @@ private extension ContentView {
         stopAudio()
     }
     
+    func dismissSkull() {
+        guard giftAvailable, upcomingBonus == .deadly else { return }
+        giftAvailable = false
+        upcomingBonus = nil
+        deadlyGiftActive = false
+        playSkullDismiss()
+    }
+    
     func toggleMute() {
         isMuted.toggle()
         if isMuted {
@@ -1847,6 +2065,22 @@ private extension ContentView {
         #endif
     }
 
+    func playMiss() {
+        if let url = Bundle.main.url(forResource: "miss", withExtension: "wav")
+            ?? Bundle.main.url(forResource: "miss", withExtension: "m4a")
+            ?? Bundle.main.url(forResource: "miss", withExtension: "mp3") {
+            do {
+                let p = try AVAudioPlayer(contentsOf: url)
+                p.prepareToPlay()
+                p.play()
+            } catch {
+                WKInterfaceDevice.current().play(.click)
+            }
+        } else {
+            WKInterfaceDevice.current().play(.click)
+        }
+    }
+
     func playGiftOpen() {
         if let url = Bundle.main.url(forResource: "gift_open", withExtension: "wav")
             ?? Bundle.main.url(forResource: "gift_open", withExtension: "m4a")
@@ -1873,6 +2107,20 @@ private extension ContentView {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             showBonusEffect = false
+        }
+    }
+    
+    func playSkullDismiss() {
+        if let url = Bundle.main.url(forResource: "skull_dismiss", withExtension: "wav")
+            ?? Bundle.main.url(forResource: "skull_dismiss", withExtension: "m4a")
+            ?? Bundle.main.url(forResource: "skull_dismiss", withExtension: "mp3") {
+            do {
+                let p = try AVAudioPlayer(contentsOf: url)
+                p.prepareToPlay()
+                p.play()
+            } catch { }
+        } else {
+            WKInterfaceDevice.current().play(.click)
         }
     }
 
