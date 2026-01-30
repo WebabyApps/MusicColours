@@ -1,4 +1,4 @@
-//  
+//
 //  ContentView.swift
 //  NewColours Watch App
 //
@@ -364,6 +364,10 @@ struct ContentView: View {
     @State private var isCountingDown: Bool = false
     @State private var countdownValue: Int = 3 // 3,2,1,0(Go)
     @State private var countdownFrozenT: TimeInterval? = nil
+    // Level-complete overlay (pause between levels)
+    @State private var isLevelCompletePresented: Bool = false
+    @State private var levelCompleteSpin: Double = 0
+    @State private var levelCompletePulse: Bool = false
 
     @State private var bgSpeed: Double = 8.0
 
@@ -417,6 +421,7 @@ struct ContentView: View {
     
     // Added shakeTrigger for shake animation on wrong tap
     @State private var shakeTrigger: Int = 0
+    @State private var completedLevelToShow: Int = 1
 
     // Difficulty selection and rules
     enum Difficulty: CaseIterable { case easy, medium, hard
@@ -453,6 +458,14 @@ struct ContentView: View {
         if let until = slowBgUntil, until > Date() { return bgSpeed * 1.8 } // slower hue change
         return bgSpeed
     }
+    private var levelCompleteBadge: String {
+        switch difficulty {
+        case .easy: return "🐢"
+        case .medium: return "🦊"
+        case .hard: return "🔥"
+        }
+    }
+    
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -461,7 +474,7 @@ struct ContentView: View {
                     phase: backgroundPhase,
                     colors: availableColors.map { $0.color },
                     bgSpeed: effectiveBgSpeed,
-                    frozenTime: countdownFrozenT
+                    beatPulse: beatPulse
                 )
                     .ignoresSafeArea()
                     .saturation(gameState == .gameOver ? 0.2 : 1.0)
@@ -564,6 +577,17 @@ struct ContentView: View {
                         .transition(.opacity)
                         .zIndex(50)
                 }
+                if gameState == .playing && isLevelCompletePresented {
+                    LevelCompleteOverlayView(
+                        level: completedLevelToShow,
+                        badge: levelCompleteBadge,
+                        spin: levelCompleteSpin,
+                        pulse: levelCompletePulse,
+                        onPlay: { beginNextLevelFromOverlay() }
+                    )
+                    .transition(.opacity)
+                    .zIndex(60)
+                }
 
                 if gameState == .playing { BonusIndicators(invincibleUntil: invincibleUntil, slowBgUntil: slowBgUntil) }
 
@@ -593,7 +617,8 @@ struct ContentView: View {
                     // If we entered .playing only to show the countdown, do not start timers yet
                     if isCountingDown { return }
                     updateBeatInterval(syncedToBPM: audioPlayer != nil)
-                    if difficulty.timeLimitSeconds != nil { resetLevelTimer() }
+                    lastBeatDate = Date()
+                    timeRemaining = beatInterval
                     startBeatLoop()
                 } else {
                     stopBeatLoop()
@@ -616,7 +641,10 @@ struct ContentView: View {
                 // Background animation handled by TimelineView
                 // Countdown update while playing
                 guard gameState == .playing else { return }
+                if isLevelCompletePresented { return }
                 if isCountingDown { return }
+                // Don't apply miss/time-out logic until the beat loop is actually running
+                guard beatTimer != nil else { return }
                 let elapsed = Date().timeIntervalSince(lastBeatDate)
                 timeRemaining = max(0, beatInterval - elapsed)
                 levelTimeRemaining = max(0, levelTimeRemaining - (1.0/30.0))
@@ -638,6 +666,7 @@ struct ContentView: View {
         // Reset core gameplay counters
         score = 0
         level = 1
+        completedLevelToShow = 1
         colorCyclesCompleted = 0
         correctStreak = 0
         nextGiftIn = 0
@@ -669,6 +698,58 @@ struct ContentView: View {
         countdownFrozenT = nil
     }
 
+    // MARK: - Level start helpers
+    private func resetStrikesForNewLevel() {
+        // Reset mistakes allowance when a new level begins
+        strikesRemaining = difficulty.allowedMistakes
+        shakeTrigger = 0
+    }
+
+    // MARK: - Apply bonus effects
+    private func applyBonus(_ bonus: BonusType) {
+        switch bonus {
+        case .freeTrack:
+            allowOneFreeCustomTrack = true
+            WKInterfaceDevice.current().play(.success)
+        case .invincibility:
+            invincibleUntil = Date().addingTimeInterval(10)
+            WKInterfaceDevice.current().play(.success)
+        case .slowBackground:
+            slowBgUntil = Date().addingTimeInterval(12)
+            WKInterfaceDevice.current().play(.success)
+        case .addTime:
+            // Bonus: reset timers + restore mistakes
+            // 1) Level timer: reset to full limit for timed modes
+            if let limit = difficulty.timeLimitSeconds {
+                levelTimeRemaining = TimeInterval(limit)
+            } else {
+                // Hard mode: timer isn't used as a fail condition
+                levelTimeRemaining = .infinity
+            }
+
+            // 2) Beat ring: resync so we don't instantly time-out on the next tick
+            lastBeatDate = Date()
+            timeRemaining = beatInterval
+
+            // 3) Restore strikes (missed colours allowance)
+            strikesRemaining = difficulty.allowedMistakes
+            shakeTrigger = 0
+
+            // Optional: small haptic feedback if you already use haptics for other bonuses
+            WKInterfaceDevice.current().play(.success)
+        case .deadly:
+            // Deadly bonus: do nothing here (should be handled elsewhere)
+            break
+        }
+    }
+
+    // MARK: - Bonus consumption logic
+    private func consumePendingBonus() {
+        guard let bonus = pendingBonus else { return }
+        applyBonus(bonus)
+        pendingBonus = nil
+        giftAvailable = false
+    }
     func loadAvailableTracks() {
         let exts = ["m4a", "mp3"]
         var names: Set<String> = []
@@ -699,6 +780,11 @@ struct ContentView: View {
         print("[Audio] Visible tracks:", availableTracks)
         print("[Audio] Selected track:", selectedTrack)
     }
+
+    // (If there is a function that sets isLevelCompletePresented = true and completedLevelToShow,
+    //  add the following before dismissing overlay/starting next level)
+    // Safety: make sure strikes are reset for the next level start
+    // resetStrikesForNewLevel()
 }
 
 // MARK: - AnimatedDepthBackground
@@ -706,31 +792,75 @@ private struct AnimatedDepthBackground: View {
     var phase: CGFloat
     var colors: [Color]
     var bgSpeed: Double
+    var beatPulse: Bool = false
     var frozenTime: TimeInterval? = nil
 
     var body: some View {
         TimelineView(.animation) { timeline in
             let t = frozenTime ?? timeline.date.timeIntervalSinceReferenceDate
-            let speed = max(3.0, bgSpeed * 0.7)
-            let baseHue = (sin(t / (speed * 0.7)) * 0.5 + 0.5)
-            let c1 = Color(hue: baseHue, saturation: 0.55, brightness: 0.85)
-            let c2 = Color(hue: (baseHue + 0.08).truncatingRemainder(dividingBy: 1.0), saturation: 0.5, brightness: 0.75)
-            let c3 = Color(hue: (baseHue + 0.16).truncatingRemainder(dividingBy: 1.0), saturation: 0.45, brightness: 0.7)
+
+            // === HUE: szybciej + kop na beat ===
+            let pulseBoost = beatPulse ? 1.65 : 1.0
+            let hueDenom = max(1.6, bgSpeed * 0.40) / pulseBoost
+            let baseHue = (sin(t / hueDenom) * 0.5 + 0.5)
+
+            let c1 = Color(hue: baseHue,
+                           saturation: 0.58,
+                           brightness: 0.88)
+
+            let c2 = Color(
+                hue: (baseHue + 0.10).truncatingRemainder(dividingBy: 1.0),
+                saturation: 0.52,
+                brightness: 0.78
+            )
+
+            let c3 = Color(
+                hue: (baseHue + 0.20).truncatingRemainder(dividingBy: 1.0),
+                saturation: 0.46,
+                brightness: 0.72
+            )
+
             let colors = [c1, c2, c3]
+
+            // === RUCH: nutki i blobki reagują na beat ===
+            let motionT = t
+                * (1.10 + bgSpeed / 14.0)
+                * (beatPulse ? 1.25 : 1.0)
+
+            let speed = max(2.2, bgSpeed * 0.55)
+                / (beatPulse ? 1.15 : 1.0)
+
             ZStack {
-                LinearGradient(colors: [c1, c2], startPoint: .topLeading, endPoint: .bottomTrailing)
-                    .opacity(0.6)
+                // Gradient tła
+                LinearGradient(
+                    colors: [c1, c2],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .opacity(0.62)
+
+                // Świecące blobki (szybsze + większe na beat)
                 ForEach(0..<3, id: \.self) { i in
-                    let ph = CGFloat(t / 7.5) + CGFloat(i) * 0.9
+                    let ph = CGFloat(motionT / 6.2) + CGFloat(i) * 0.9
+
                     Circle()
                         .fill(colors[i % 3])
-                        .frame(width: 200, height: 200)
-                        .blur(radius: 50)
-                        .opacity(0.18)
-                        .offset(x: sin(ph) * 38, y: cos(ph * 1.0) * 30)
+                        .frame(width: 210, height: 210)
+                        .blur(radius: 52)
+                        .opacity(0.20)
+                        .offset(
+                            x: sin(ph) * (beatPulse ? 46 : 40),
+                            y: cos(ph) * (beatPulse ? 36 : 32)
+                        )
                         .blendMode(.plusLighter)
                 }
-                FloatingNotesLayer(t: t, bgSpeed: speed, colors: colors)
+
+                // Nutki – zsynchronizowane z beatem
+                FloatingNotesLayer(
+                    t: motionT,
+                    bgSpeed: speed,
+                    colors: colors
+                )
             }
             .ignoresSafeArea()
         }
@@ -973,6 +1103,88 @@ private struct CountdownOverlayView: View {
     }
 }
 
+private struct LevelCompleteOverlayView: View {
+    let level: Int
+    let badge: String
+    let spin: Double
+    let pulse: Bool
+    let onPlay: () -> Void
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.55).ignoresSafeArea()
+
+            VStack(spacing: 10) {
+                Text("LEVEL \(level) COMPLETE")
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .multilineTextAlignment(.center)
+
+                Group {
+                    if badge == "🐢" {
+                        // Turtle: spins while orbiting in a small circle
+                        let a = Angle(degrees: spin)
+                        Text(badge)
+                            .font(.system(size: 52))
+                            .rotationEffect(a)
+                            .offset(
+                                x: CGFloat(cos(a.radians)) * 16,
+                                y: CGFloat(sin(a.radians)) * 10
+                            )
+                            .scaleEffect(pulse ? 1.10 : 0.92)
+
+                    } else if badge == "🔥" {
+                        // Fire: pulsing flame with slight flicker
+                        Text(badge)
+                            .font(.system(size: 56))
+                            .scaleEffect(pulse ? 1.18 : 0.92)
+                            .opacity(pulse ? 1.0 : 0.78)
+                            .blur(radius: pulse ? 0.0 : 1.2)
+                            .offset(y: pulse ? -2 : 2)
+                            .shadow(
+                                color: .orange.opacity(pulse ? 0.55 : 0.25),
+                                radius: pulse ? 10 : 4,
+                                x: 0,
+                                y: pulse ? 2 : 6
+                            )
+
+                    } else {
+                        // Medium: bounce/spin mix
+                        Text(badge)
+                            .font(.system(size: 52))
+                            .rotationEffect(.degrees(spin * 0.5))
+                            .scaleEffect(pulse ? 1.14 : 0.94)
+                            .offset(y: pulse ? -3 : 3)
+                    }
+                }
+
+                Text("Ready for the next level?")
+                    .font(.system(size: 12, weight: .semibold, design: .rounded))
+                    .opacity(0.9)
+
+                Button(action: onPlay) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "play.fill")
+                        Text("PLAY")
+                    }
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 14)
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            .padding(14)
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(0.18), lineWidth: 1)
+            )
+            .padding(.horizontal, 10)
+        }
+    }
+}
+
+
 private struct MenuView: View {
     @Binding var appLanguage: String
     @Binding var selectedTrack: String
@@ -999,6 +1211,15 @@ private struct MenuView: View {
     
     @Binding var isMuted: Bool
     var onToggleMuteState: () -> Void
+
+    @State private var showDifficultyToast: Bool = false
+
+    private func flashDifficultyToast() {
+        showDifficultyToast = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+            withAnimation(.easeOut(duration: 0.2)) { showDifficultyToast = false }
+        }
+    }
 
     var body: some View {
         ZStack {
@@ -1098,7 +1319,10 @@ private struct MenuView: View {
                     .foregroundStyle(.white)
 
                     // Right: difficulty cycle (tap-cykl)
-                    Button(action: onCycleDifficulty) {
+                    Button(action: {
+                        onCycleDifficulty()
+                        flashDifficultyToast()
+                    }) {
                         Image(systemName: difficulty.icon)
                             .font(.system(size: 16, weight: .semibold))
                             .frame(width: 28, height: 28)
@@ -1112,13 +1336,27 @@ private struct MenuView: View {
                 .background(.ultraThinMaterial, in: Capsule())
                 .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
                 
-                Text("Poziom: \(difficulty.title)")
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.8))
                 
                 Spacer(minLength: 8)
             }
             .padding()
+            .overlay(alignment: .top) {
+                if showDifficultyToast {
+                    Text("Poziom: \(difficulty.title)")
+                        .font(.caption2)
+                        .foregroundStyle(.white)
+                        .padding(.vertical, 6)
+                        .padding(.horizontal, 10)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .shadow(color: .black.opacity(0.25), radius: 4, x: 0, y: 2)
+                        .transition(.opacity)
+                        .padding(.top, 6)
+                        .onAppear {
+                            // ensure it fades in smoothly
+                            withAnimation(.easeIn(duration: 0.15)) { }
+                        }
+                }
+            }
         }
         .ignoresSafeArea()
         .background(Color.black.opacity(0.001))
@@ -1486,6 +1724,7 @@ private struct MarqueeText: View {
 private struct PaywallView: View {
     var onPurchase: () -> Void
     var onClose: () -> Void
+    @State private var showPrivacyPolicy: Bool = false
     var body: some View {
         ScrollView {
             VStack(spacing: 10) {
@@ -1497,11 +1736,64 @@ private struct PaywallView: View {
                     .buttonStyle(.borderedProminent)
                 Button("Not now", action: onClose)
                     .buttonStyle(.bordered)
+                Button(action: { showPrivacyPolicy = true }) {
+                    Text("Privacy Policy")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.85))
+                }
+                .buttonStyle(.plain)
+                .padding(.top, 4)
             }
             .padding()
         }
+        .sheet(isPresented: $showPrivacyPolicy) {
+            PrivacyPolicyView()
+        }
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .padding()
+    }
+}
+
+// MARK: - Privacy Policy (in-app)
+private struct PrivacyPolicyView: View {
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Privacy Policy")
+                    .font(.headline)
+                    .padding(.bottom, 2)
+
+                Text("Music Colours does not collect or track personal data.")
+                    .font(.caption)
+
+                Text("Data we do NOT collect")
+                    .font(.subheadline).bold()
+                Text("• We do not collect names, emails, phone numbers, location, contacts, identifiers, or analytics.\n• We do not use advertising SDKs and we do not track you across apps or websites.")
+                    .font(.caption)
+
+                Text("What the app does locally")
+                    .font(.subheadline).bold()
+                Text("• The game runs on your device.\n• If you add your own soundtrack (Premium), the audio file stays on your device and is used only to play music and synchronize gameplay.")
+                    .font(.caption)
+
+                Text("Purchases")
+                    .font(.subheadline).bold()
+                Text("• Premium purchases are processed by Apple (StoreKit). We do not receive your payment details.")
+                    .font(.caption)
+
+                Text("Contact")
+                    .font(.subheadline).bold()
+                Text("If you have questions about privacy, contact us via the website: webaby.io.")
+                    .font(.caption)
+
+                Text("Last updated: January 2026")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.7))
+                    .padding(.top, 6)
+            }
+            .padding()
+        }
+        .background(Color.black.opacity(0.001))
     }
 }
 
@@ -1673,9 +1965,11 @@ private extension ContentView {
     enum GameState { case splash, menu, playing, gameOver }
     
     func resetLevelTimer() {
-        // Aim for ~40 beats per level but never less than 120s
-        let target = beatInterval * 40.0
-        levelTimeRemaining = max(120.0, target)
+        if let seconds = difficulty.timeLimitSeconds {
+            levelTimeRemaining = TimeInterval(seconds)
+        } else {
+            levelTimeRemaining = .infinity
+        }
     }
 
     func startCountdown() {
@@ -1720,7 +2014,9 @@ private extension ContentView {
         if isCountingDown { return }
         score = 0
         level = 1
+        completedLevelToShow = 1
         availableColors = GameColor.basic
+        applyLevelUpEffectsForCurrentLevel()
         // Set strikes and time by difficulty
         strikesRemaining = difficulty.allowedMistakes
         if let seconds = difficulty.timeLimitSeconds {
@@ -1750,6 +2046,110 @@ private extension ContentView {
         resetRunState()
         gameState = .menu
         stopAudio()
+    }
+    
+    func presentLevelComplete() {
+        stopBeatLoop()
+        isCountingDown = false
+
+        // Freeze background hue while waiting
+        countdownFrozenT = Date().timeIntervalSinceReferenceDate
+
+        levelCompleteSpin = 0
+        levelCompletePulse = false
+        withAnimation(.linear(duration: 1.6).repeatForever(autoreverses: false)) {
+            levelCompleteSpin = 360
+        }
+        withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+            levelCompletePulse = true
+        }
+
+        isLevelCompletePresented = true
+        WKInterfaceDevice.current().play(.success)
+    }
+
+    func beginNextLevelFromOverlay() {
+        resetStrikesForNewLevel()
+        isLevelCompletePresented = false
+        levelCompleteSpin = 0
+        levelCompletePulse = false
+
+        startCountdownForNextLevel()
+    }
+
+    func startCountdownForNextLevel() {
+        guard !isCountingDown else { return }
+        guard gameState == .playing else { return }
+
+        stopBeatLoop()
+
+        // per-level reset (keep score/level)
+        correctStreak = 0
+        // Reset mistakes allowance for the new level (safety)
+        resetStrikesForNewLevel()
+        nextGiftIn = Int.random(in: 2...3)
+        giftAvailable = false
+        giftBeatsRemaining = 0
+        pendingBonus = nil
+        upcomingBonus = nil
+        deadlyGiftActive = false
+        invincibleUntil = nil
+        slowBgUntil = nil
+
+        if let seconds = difficulty.timeLimitSeconds {
+            levelTimeRemaining = TimeInterval(seconds)
+        } else {
+            levelTimeRemaining = .infinity
+            colorCyclesCompleted = 0
+        }
+
+        countdownFrozenT = Date().timeIntervalSinceReferenceDate
+
+        isCountingDown = true
+        countdownValue = 3
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { countdownValue = 2 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { countdownValue = 1 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            countdownValue = 0
+            WKInterfaceDevice.current().play(.success)
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.65) {
+            isCountingDown = false
+            countdownFrozenT = nil
+
+            applyLevelUpEffectsForCurrentLevel()
+            resetLevelTimer()
+            lastBeatDate = Date()
+            timeRemaining = beatInterval
+
+            nextBeat(newLevel: true)
+            if gameState == .playing { startBeatLoop() }
+        }
+    }
+
+    func applyLevelUpEffectsForCurrentLevel() {
+        // Keep at least the basic palette (prevents 4th yellow color from disappearing)
+        let baseCount = GameColor.basic.count
+        let desiredCount = min(GameColor.all.count, baseCount + max(0, level - 1))
+        availableColors = Array(GameColor.all.prefix(desiredCount))
+
+        updateBeatInterval(syncedToBPM: audioPlayer != nil)
+        lastBeatDate = Date()
+        timeRemaining = beatInterval
+        if difficulty.timeLimitSeconds != nil { resetLevelTimer() }
+
+        if !premiumUnlocked && !allowOneFreeCustomTrack {
+            if let idx = freeTracks.firstIndex(of: selectedTrack) {
+                selectedTrack = freeTracks[(idx + 1) % freeTracks.count]
+            } else {
+                selectedTrack = freeTracks.first ?? selectedTrack
+            }
+        }
+
+        stopAudio()
+        if !isMuted { startAudioIfAvailable() }
     }
 
     func startBeatLoop() {
@@ -1870,6 +2270,7 @@ private extension ContentView {
             }
             
             advanceDifficultyIfNeeded()
+            if isLevelCompletePresented { return }
             nextBeat()
             playSuccess()
         } else {
@@ -1934,31 +2335,10 @@ private extension ContentView {
         // Increase level every 10 points, add colors and speed up, cycle tracks
         let newLevel = score / 10 + 1
         if newLevel > level {
-            level = newLevel
-            // Add colors progressively
-            if availableColors.count < GameColor.all.count {
-                availableColors = Array(GameColor.all.prefix(min(GameColor.all.count, 2 + level)))
-            }
-            // Speed up
-            updateBeatInterval(syncedToBPM: audioPlayer != nil)
-            if difficulty.timeLimitSeconds != nil { resetLevelTimer() }
-            if gameState == .playing { startBeatLoop() }
-            // Change track on level up (cycle through free tracks if not premium)
-            if !premiumUnlocked && !allowOneFreeCustomTrack {
-                if let idx = freeTracks.firstIndex(of: selectedTrack) {
-                    let next = freeTracks[(idx + 1) % freeTracks.count]
-                    selectedTrack = next
-                } else {
-                    selectedTrack = freeTracks.first ?? selectedTrack
-                }
-            }
-            // Restart audio with new track, respecting mute
-            stopAudio()
-            if !isMuted {
-                startAudioIfAvailable()
-            }
-            // giftAvailable = (Double.random(in: 0...1) < 0.5) && level >= 1
-            /* gift spawning handled by streak logic */
+            completedLevelToShow = level   // <- ukończony level (stary)
+            level = newLevel               // <- dopiero teraz nowy level
+            presentLevelComplete()
+            return
         }
     }
 
@@ -1974,7 +2354,8 @@ private extension ContentView {
             beatInterval = base * speedFactor
         }
         // Adjust background speed relative to beat interval
-        bgSpeed = max(4.0, min(12.0, 60.0 / max(0.5, beatInterval)))
+        // Stronger coupling: faster beat => noticeably faster background transitions
+        bgSpeed = max(7.0, min(20.0, 90.0 / max(0.35, beatInterval)))
         if difficulty.timeLimitSeconds != nil {
             if levelTimeRemaining == 0 { levelTimeRemaining = beatInterval * 40.0 }
         }
