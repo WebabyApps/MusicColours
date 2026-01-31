@@ -350,6 +350,8 @@ struct ContentView: View {
     @State private var isAnimatingBG: Bool = false
     @State private var audioPlayer: AVAudioPlayer?
     @State private var giftOpenPlayer: AVAudioPlayer? = nil
+    @State private var fanfarePlayer: AVAudioPlayer? = nil
+    
     @State private var bpm: Double = 100 // beats per minute for sync with audio
     @State private var availableTracks: [String] = [] // filenames without extension
     @State private var selectedTrack: String = "track1" // default changed to first free track
@@ -704,7 +706,21 @@ struct ContentView: View {
         strikesRemaining = difficulty.allowedMistakes
         shakeTrigger = 0
     }
-
+    // MARK: - Sounds
+    private func playLevelCompleteFanfare() {
+        guard !isMuted else { return }
+        guard let url = Bundle.main.url(forResource: "tada-fanfare", withExtension: "mp3") else {
+            print("[Audio] Missing tada-fanfare.mp3 in bundle")
+            return
+        }
+        do {
+            fanfarePlayer = try AVAudioPlayer(contentsOf: url)
+            fanfarePlayer?.prepareToPlay()
+            fanfarePlayer?.play()
+        } catch {
+            print("[Audio] Failed to play fanfare:", error)
+        }
+    }
     // MARK: - Apply bonus effects
     private func applyBonus(_ bonus: BonusType) {
         switch bonus {
@@ -2128,6 +2144,7 @@ private extension ContentView {
         }
 
         isLevelCompletePresented = true
+        playLevelCompleteFanfare()
         WKInterfaceDevice.current().play(.success)
     }
 
