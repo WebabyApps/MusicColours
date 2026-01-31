@@ -1110,6 +1110,14 @@ private struct LevelCompleteOverlayView: View {
     let pulse: Bool
     let onPlay: () -> Void
 
+    // Self-contained animation state (so animation always runs even if parent state isn't updating)
+    @State private var didStart: Bool = false
+    @State private var localSpin: Double = 0
+    @State private var localPulse: Bool = false
+    @State private var turtleX: CGFloat = -120
+    @State private var turtleWiggle: CGFloat = 0
+    @State private var fireFlicker: CGFloat = 0
+
     var body: some View {
         ZStack {
             Color.black.opacity(0.55).ignoresSafeArea()
@@ -1119,43 +1127,7 @@ private struct LevelCompleteOverlayView: View {
                     .font(.system(size: 16, weight: .bold, design: .rounded))
                     .multilineTextAlignment(.center)
 
-                Group {
-                    if badge == "🐢" {
-                        // Turtle: spins while orbiting in a small circle
-                        let a = Angle(degrees: spin)
-                        Text(badge)
-                            .font(.system(size: 52))
-                            .rotationEffect(a)
-                            .offset(
-                                x: CGFloat(cos(a.radians)) * 16,
-                                y: CGFloat(sin(a.radians)) * 10
-                            )
-                            .scaleEffect(pulse ? 1.10 : 0.92)
-
-                    } else if badge == "🔥" {
-                        // Fire: pulsing flame with slight flicker
-                        Text(badge)
-                            .font(.system(size: 56))
-                            .scaleEffect(pulse ? 1.18 : 0.92)
-                            .opacity(pulse ? 1.0 : 0.78)
-                            .blur(radius: pulse ? 0.0 : 1.2)
-                            .offset(y: pulse ? -2 : 2)
-                            .shadow(
-                                color: .orange.opacity(pulse ? 0.55 : 0.25),
-                                radius: pulse ? 10 : 4,
-                                x: 0,
-                                y: pulse ? 2 : 6
-                            )
-
-                    } else {
-                        // Medium: bounce/spin mix
-                        Text(badge)
-                            .font(.system(size: 52))
-                            .rotationEffect(.degrees(spin * 0.5))
-                            .scaleEffect(pulse ? 1.14 : 0.94)
-                            .offset(y: pulse ? -3 : 3)
-                    }
-                }
+                badgeView
 
                 Text("Ready for the next level?")
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
@@ -1180,6 +1152,97 @@ private struct LevelCompleteOverlayView: View {
                     .stroke(Color.white.opacity(0.18), lineWidth: 1)
             )
             .padding(.horizontal, 10)
+        }
+        .onAppear {
+            // Always start animations on appear (fixes "no animation" issue)
+            guard !didStart else { return }
+            didStart = true
+
+            // Base looping animations used by multiple badges
+            localSpin = 0
+            localPulse = false
+            withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) {
+                localSpin = 360
+            }
+            withAnimation(.easeInOut(duration: 0.75).repeatForever(autoreverses: true)) {
+                localPulse = true
+            }
+
+            // Turtle special: ONLY move left and STOP at center (x = 0). No vertical motion.
+            turtleX = 52          // start slightly right (within the lane)
+            turtleWiggle = 0      // keep y locked
+            withAnimation(.easeOut(duration: 2.8)) {
+                turtleX = 0       // stop in the middle of the lane
+            }
+            // No wiggle animation — user requested strict left-only motion.
+
+            // Fire special: flicker + tiny vertical jitter
+            fireFlicker = 0
+            withAnimation(.easeInOut(duration: 0.12).repeatForever(autoreverses: true)) {
+                fireFlicker = 1
+            }
+        }
+        .onDisappear {
+            // Reset for next presentation so animations reliably restart
+            didStart = false
+            localSpin = 0
+            localPulse = false
+            turtleX = 52
+            turtleWiggle = 0
+            fireFlicker = 0
+        }
+    }
+
+    @ViewBuilder
+    private var badgeView: some View {
+        // Prefer parent-provided values if they are actively driving animation,
+        // but fall back to local state so animation always happens.
+        let effectiveSpin: Double = (spin != 0) ? spin : localSpin
+        let effectivePulse: Bool = pulse || localPulse
+
+        if badge == "🐢" {
+            // Turtle: moves across a lane + wiggles (easy to notice on watch)
+            ZStack {
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(Color.white.opacity(0.10))
+                    .overlay(RoundedRectangle(cornerRadius: 14).stroke(Color.white.opacity(0.15), lineWidth: 1))
+                    .frame(height: 44)
+
+                Text("🐢")
+                    .font(.system(size: 46))
+                    .offset(x: turtleX, y: 0)
+                    .scaleEffect(effectivePulse ? 1.08 : 0.96)
+                    .shadow(radius: 2)
+            }
+            .frame(width: 150)
+
+        } else if badge == "🔥" {
+            // Fire: pulsing + flicker + glow
+            Text(badge)
+                .font(.system(size: 56))
+                .scaleEffect(effectivePulse ? 1.18 : 0.92)
+                .opacity(effectivePulse ? 1.0 : 0.78)
+                .blur(radius: effectivePulse ? 0.0 : 1.2)
+                .offset(y: (effectivePulse ? -2 : 2) + (fireFlicker > 0 ? -1 : 1))
+                .shadow(
+                    color: .orange.opacity(effectivePulse ? 0.55 : 0.25),
+                    radius: effectivePulse ? 10 : 4,
+                    x: 0,
+                    y: effectivePulse ? 2 : 6
+                )
+
+        } else {
+            // Default for other badges: orbit + rotation + gentle bounce
+            let a = Angle(degrees: effectiveSpin)
+            Text(badge)
+                .font(.system(size: 52))
+                .rotationEffect(a)
+                .offset(
+                    x: CGFloat(cos(a.radians)) * 16,
+                    y: CGFloat(sin(a.radians)) * 10 + (effectivePulse ? -3 : 3)
+                )
+                .scaleEffect(effectivePulse ? 1.14 : 0.94)
+                .shadow(radius: 2)
         }
     }
 }
