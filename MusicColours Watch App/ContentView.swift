@@ -1293,6 +1293,30 @@ private struct MenuView: View {
 
     @State private var showDifficultyToast: Bool = false
 
+    private func difficultyPrefix() -> String {
+        switch appLanguage.lowercased() {
+        case "pl": return "Poziom"
+        default: return "Level"
+        }
+    }
+
+    private func difficultyTitleLocalized() -> String {
+        switch appLanguage.lowercased() {
+        case "pl":
+            switch difficulty {
+            case .easy: return "Łatwy"
+            case .medium: return "Średni"
+            case .hard: return "Trudny"
+            }
+        default:
+            switch difficulty {
+            case .easy: return "Easy"
+            case .medium: return "Medium"
+            case .hard: return "Hard"
+            }
+        }
+    }
+
     private func flashDifficultyToast() {
         showDifficultyToast = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
@@ -1409,7 +1433,7 @@ private struct MenuView: View {
                     .buttonStyle(.bordered)
                     .tint(.white)
                     .foregroundStyle(.white)
-                    .accessibilityLabel(Text("Poziom: \(difficulty.title)"))
+                    .accessibilityLabel(Text("\(difficultyPrefix()): \(difficultyTitleLocalized())"))
                 }
                 .padding(6)
                 .background(.ultraThinMaterial, in: Capsule())
@@ -1421,7 +1445,7 @@ private struct MenuView: View {
             .padding()
             .overlay(alignment: .top) {
                 if showDifficultyToast {
-                    Text("Poziom: \(difficulty.title)")
+                    Text("\(difficultyPrefix()): \(difficultyTitleLocalized())")
                         .font(.caption2)
                         .foregroundStyle(.white)
                         .padding(.vertical, 6)
