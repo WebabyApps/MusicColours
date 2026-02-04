@@ -7,9 +7,9 @@ struct ControlPanelView: View {
         
         var title: String {
             switch self {
-            case .easy: return "Łatwy"
-            case .medium: return "Średni"
-            case .hard: return "Trudny"
+            case .easy: return "Easy"
+            case .medium: return "Medium"
+            case .hard: return "Hard"
             }
         }
         
@@ -111,15 +111,15 @@ struct ControlPanelView: View {
             }
 
             VStack(spacing: 4) {
-                Text("Pozostałe próby: \(failuresLeft)")
+                Text("Attempts left: \(failuresLeft)")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 if let seconds = difficulty.timeLimitSeconds {
-                    Text("Limit czasu: \(seconds / 60) min")
+                    Text("Time limit: \(seconds / 60) min")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 } else if let cycles = difficulty.cyclesToWin {
-                    Text("Warunek: \(cycles) cykle koloru")
+                    Text("Goal: \(cycles) color cycles")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }

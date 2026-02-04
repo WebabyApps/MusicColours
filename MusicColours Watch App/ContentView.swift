@@ -12,7 +12,7 @@ import WatchKit
 import Accelerate
 import StoreKit
 
-private enum AppLanguage: String, CaseIterable, Identifiable { case pl, en; var id: String { rawValue } }
+private enum AppLanguage: String, CaseIterable, Identifiable { case en; var id: String { rawValue } }
 
 // MARK: - Floating Notes Layer (extracted from AnimatedDepthBackground)
 private struct FloatingNotesLayer: View {
@@ -356,7 +356,7 @@ struct ContentView: View {
     @State private var availableTracks: [String] = [] // filenames without extension
     @State private var selectedTrack: String = "track1" // default changed to first free track
     @State private var isEstimatingBPM: Bool = false
-    @AppStorage("appLanguage") private var appLanguageRaw: String = "pl"
+    @AppStorage("appLanguage") private var appLanguageRaw: String = "en"
     @AppStorage("isMuted") private var isMuted: Bool = false
     @State private var path = NavigationPath()
 
@@ -438,7 +438,7 @@ struct ContentView: View {
         }
         var cyclesToWin: Int? { self == .hard ? 4 : nil }
         var title: String {
-            switch self { case .easy: return "Łatwy"; case .medium: return "Średni"; case .hard: return "Trudny" }
+            switch self { case .easy: return "Easy"; case .medium: return "Medium"; case .hard: return "Hard" }
         }
         var next: Difficulty {
             switch self { case .easy: return .medium; case .medium: return .hard; case .hard: return .easy }
@@ -1293,27 +1293,13 @@ private struct MenuView: View {
 
     @State private var showDifficultyToast: Bool = false
 
-    private func difficultyPrefix() -> String {
-        switch appLanguage.lowercased() {
-        case "pl": return "Poziom"
-        default: return "Level"
-        }
-    }
+    private func difficultyPrefix() -> String { "Level" }
 
     private func difficultyTitleLocalized() -> String {
-        switch appLanguage.lowercased() {
-        case "pl":
-            switch difficulty {
-            case .easy: return "Łatwy"
-            case .medium: return "Średni"
-            case .hard: return "Trudny"
-            }
-        default:
-            switch difficulty {
-            case .easy: return "Easy"
-            case .medium: return "Medium"
-            case .hard: return "Hard"
-            }
+        switch difficulty {
+        case .easy: return "Easy"
+        case .medium: return "Medium"
+        case .hard: return "Hard"
         }
     }
 
@@ -2872,4 +2858,3 @@ private struct ShakeEffect: ViewModifier {
 #Preview {
     ContentView()
 }
-

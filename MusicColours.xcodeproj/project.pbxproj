@@ -333,7 +333,7 @@
 				DEVELOPMENT_TEAM = KM4ATH56TL;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = NewColours;
+				INFOPLIST_KEY_CFBundleDisplayName = MusicColours;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKWatchOnly = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -341,7 +341,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = Webaby.NewColours.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = io.webaby.musiccolours.watchapp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
@@ -366,7 +366,7 @@
 				DEVELOPMENT_TEAM = KM4ATH56TL;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = NewColours;
+				INFOPLIST_KEY_CFBundleDisplayName = MusicColours;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKWatchOnly = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -374,7 +374,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = Webaby.NewColours.watchkitapp;
+				PRODUCT_BUNDLE_IDENTIFIER = io.webaby.musiccolours.watchapp;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = watchos;
 				SKIP_INSTALL = YES;
@@ -398,7 +398,7 @@
 				DEVELOPMENT_TEAM = KM4ATH56TL;
 				INFOPLIST_KEY_CFBundleDisplayName = NewColours;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = Webaby.NewColours;
+				PRODUCT_BUNDLE_IDENTIFIER = io.webaby.musiccolours;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -415,7 +415,7 @@
 				DEVELOPMENT_TEAM = KM4ATH56TL;
 				INFOPLIST_KEY_CFBundleDisplayName = NewColours;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = Webaby.NewColours;
+				PRODUCT_BUNDLE_IDENTIFIER = io.webaby.musiccolours;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
