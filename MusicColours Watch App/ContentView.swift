@@ -337,6 +337,7 @@ private struct LogoBouncingView: View {
 }
 
 struct ContentView: View {
+    private let premiumProductId: String = "premium.monthly"
     @State private var gameState: GameState = .splash
     @State private var score: Int = 0
     @State private var level: Int = 1
@@ -375,12 +376,17 @@ struct ContentView: View {
 
     // New state properties added as requested
     @State private var freeTracks: [String] = ["track1", "track2", "track3"]
-    @State private var premiumUnlocked: Bool = false
+    @AppStorage("premiumUnlocked") private var premiumUnlocked: Bool = false
     @State private var giftAvailable: Bool = false
     @State private var correctStreak: Int = 0
     @State private var nextGiftIn: Int = 0
     @State private var allowOneFreeCustomTrack: Bool = false
     @State private var showPaywall: Bool = false
+    @State private var premiumProduct: Product? = nil
+    @State private var purchaseInProgress: Bool = false
+    @State private var purchaseError: String? = nil
+    @State private var subscriptionStatusText: String? = nil
+    @State private var transactionListenerTask: Task<Void, Never>? = nil
 
     // Additional new bonus states
     @State private var invincibleUntil: Date? = nil
@@ -565,11 +571,16 @@ struct ContentView: View {
                 }
 
                 if showPaywall {
-                    PaywallView(onPurchase: {
-                        Task { await purchasePremium() }
-                    }, onClose: {
-                        showPaywall = false
-                    })
+                    PaywallView(
+                        onPurchase: { Task { await purchasePremium() } },
+                        onRestore: { Task { await restorePurchases() } },
+                        onClose: { showPaywall = false },
+                        priceText: premiumProduct?.displayPrice,
+                        periodText: subscriptionPeriodText(for: premiumProduct),
+                        isProcessing: purchaseInProgress,
+                        errorText: purchaseError,
+                        statusText: subscriptionStatusText
+                    )
                     .transition(.scale.combined(with: .opacity))
                 }
 
@@ -605,6 +616,7 @@ struct ContentView: View {
                         startAudioIfAvailable()
                     }
                 }
+                Task { await configureStoreKit() }
                 if gameState == .splash {
                     isAnimatingBG = false
                     showPulseVideo = true
@@ -613,6 +625,10 @@ struct ContentView: View {
                     coloursOffset = -200
                     impactScale = 1.0
                 }
+            }
+            .onDisappear {
+                transactionListenerTask?.cancel()
+                transactionListenerTask = nil
             }
             .onChange(of: gameState) { _, newValue in
                 if newValue == .playing {
@@ -1812,7 +1828,13 @@ private struct MarqueeText: View {
 // MARK: - Paywall View
 private struct PaywallView: View {
     var onPurchase: () -> Void
+    var onRestore: () -> Void
     var onClose: () -> Void
+    var priceText: String?
+    var periodText: String?
+    var isProcessing: Bool
+    var errorText: String?
+    var statusText: String?
     @State private var showPrivacyPolicy: Bool = false
     var body: some View {
         ScrollView {
@@ -1821,10 +1843,36 @@ private struct PaywallView: View {
                     .font(.caption2)
                     .multilineTextAlignment(.center)
                     .opacity(0.8)
-                Button("Buy Premium", action: onPurchase)
+                if let priceText, let periodText {
+                    Text("Premium: \(priceText)/\(periodText)")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.9))
+                } else if let priceText {
+                    Text("Premium: \(priceText)")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.9))
+                }
+                if let statusText {
+                    Text(statusText)
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(0.85))
+                        .multilineTextAlignment(.center)
+                }
+                if let errorText {
+                    Text(errorText)
+                        .font(.caption2)
+                        .foregroundStyle(.red.opacity(0.9))
+                        .multilineTextAlignment(.center)
+                }
+                Button(isProcessing ? "Processing..." : "Buy Premium", action: onPurchase)
                     .buttonStyle(.borderedProminent)
+                    .disabled(isProcessing)
+                Button("Restore Purchases", action: onRestore)
+                    .buttonStyle(.bordered)
+                    .disabled(isProcessing)
                 Button("Not now", action: onClose)
                     .buttonStyle(.bordered)
+                    .disabled(isProcessing)
                 Button(action: { showPrivacyPolicy = true }) {
                     Text("Privacy Policy")
                         .font(.caption2)
@@ -2660,16 +2708,164 @@ private extension ContentView {
         return estimated
     }
     
-    func purchasePremium() async {
-        do {
-            // Placeholder: integrate Product.products(for:) and purchase flow here.
-            // For now, simulate success.
-            await MainActor.run {
-                premiumUnlocked = true
-                showPaywall = false
-                loadAvailableTracks()
+    func configureStoreKit() async {
+        await loadProducts()
+        await refreshPremiumStatus()
+        if transactionListenerTask == nil {
+            transactionListenerTask = Task {
+                for await result in Transaction.updates {
+                    guard case .verified(let transaction) = result else { continue }
+                    if transaction.productID == premiumProductId {
+                        await MainActor.run {
+                            premiumUnlocked = true
+                            showPaywall = false
+                            loadAvailableTracks()
+                        }
+                    }
+                    await transaction.finish()
+                }
             }
         }
+    }
+
+    func subscriptionPeriodText(for product: Product?) -> String? {
+        guard let period = product?.subscription?.subscriptionPeriod else { return nil }
+        switch period.unit {
+        case .day: return period.value == 1 ? "day" : "\(period.value) days"
+        case .week: return period.value == 1 ? "week" : "\(period.value) weeks"
+        case .month: return period.value == 1 ? "month" : "\(period.value) months"
+        case .year: return period.value == 1 ? "year" : "\(period.value) years"
+        @unknown default: return nil
+        }
+    }
+
+    func updateSubscriptionStatusText() async {
+        guard let product = premiumProduct, let subscription = product.subscription else {
+            await MainActor.run { subscriptionStatusText = nil }
+            return
+        }
+        do {
+            let statuses = try await subscription.status
+            guard let status = statuses.first else {
+                await MainActor.run { subscriptionStatusText = nil }
+                return
+            }
+            let text: String?
+            switch status.state {
+            case .subscribed:
+                text = "Subscription active."
+            case .inGracePeriod:
+                text = "Subscription active (grace period)."
+            case .inBillingRetryPeriod:
+                text = "Subscription active (billing retry)."
+            case .expired:
+                text = "Subscription expired."
+            case .revoked:
+                text = "Subscription revoked."
+            default:
+                text = nil
+            }
+            await MainActor.run { subscriptionStatusText = text }
+        } catch {
+            await MainActor.run { subscriptionStatusText = nil }
+        }
+    }
+
+    func loadProducts() async {
+        do {
+            let products = try await Product.products(for: [premiumProductId])
+            await MainActor.run {
+                premiumProduct = products.first
+            }
+            await updateSubscriptionStatusText()
+        } catch {
+            await MainActor.run {
+                premiumProduct = nil
+                purchaseError = "Unable to load products. Please try again."
+            }
+        }
+    }
+
+    func refreshPremiumStatus() async {
+        var isActive = false
+        for await result in Transaction.currentEntitlements {
+            guard case .verified(let transaction) = result else { continue }
+            if transaction.productID == premiumProductId, transaction.revocationDate == nil {
+                isActive = true
+                break
+            }
+        }
+        if let product = premiumProduct, let subscription = product.subscription {
+            if let status = try? await subscription.status.first {
+                switch status.state {
+                case .subscribed, .inGracePeriod, .inBillingRetryPeriod:
+                    isActive = true
+                default:
+                    break
+                }
+            }
+        }
+        await MainActor.run {
+            premiumUnlocked = isActive
+            if isActive {
+                showPaywall = false
+            }
+            loadAvailableTracks()
+        }
+        await updateSubscriptionStatusText()
+    }
+
+    func purchasePremium() async {
+        await MainActor.run {
+            purchaseInProgress = true
+            purchaseError = nil
+        }
+        do {
+            if premiumProduct == nil {
+                await loadProducts()
+            }
+            guard let product = premiumProduct else {
+                await MainActor.run {
+                    purchaseInProgress = false
+                    purchaseError = "Premium product not available."
+                }
+                return
+            }
+            let result = try await product.purchase()
+            switch result {
+            case .success(let verification):
+                switch verification {
+                case .verified(let transaction):
+                    await transaction.finish()
+                    await refreshPremiumStatus()
+                case .unverified:
+                    await MainActor.run { purchaseError = "Purchase could not be verified." }
+                }
+            case .userCancelled:
+                break
+            case .pending:
+                await MainActor.run { purchaseError = "Purchase is pending approval." }
+            @unknown default:
+                await MainActor.run { purchaseError = "Purchase failed. Please try again." }
+            }
+        } catch {
+            await MainActor.run { purchaseError = "Purchase failed. Please try again." }
+        }
+        await MainActor.run { purchaseInProgress = false }
+    }
+
+    func restorePurchases() async {
+        await MainActor.run {
+            purchaseInProgress = true
+            purchaseError = nil
+        }
+        do {
+            try await AppStore.sync()
+            await refreshPremiumStatus()
+        } catch {
+            await MainActor.run { purchaseError = "Restore failed. Please try again." }
+        }
+        await MainActor.run { purchaseInProgress = false }
     }
 }
 

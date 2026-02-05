@@ -44,7 +44,6 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Logo_pulsate_delogo.MP4,
-				pulse.mov,
 			);
 			target = 17A672A52F17CA4100DE309B /* MusicColours Watch App */;
 		};
