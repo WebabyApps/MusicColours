@@ -18,6 +18,20 @@
 			remoteGlobalIDString = 17A672A52F17CA4100DE309B;
 			remoteInfo = "NewColours Watch App";
 		};
+		88FCFC69E25E4EC2A422E203 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 17A6729A2F17CA4000DE309B /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 17A672A52F17CA4100DE309B;
+			remoteInfo = "MusicColours Watch App";
+		};
+		A87740486AEC4233B6D2B3FB /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 17A6729A2F17CA4000DE309B /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 17A672A52F17CA4100DE309B;
+			remoteInfo = "MusicColours Watch App";
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -37,6 +51,8 @@
 /* Begin PBXFileReference section */
 		17A672A02F17CA4100DE309B /* MusicColours.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MusicColours.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		17A672A62F17CA4100DE309B /* MusicColours Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "MusicColours Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		E4E0DD00DF6C4F73B75C744B /* MusicColoursUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MusicColoursUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F71C0562D8714D3CBF9F9C5A /* MusicColoursTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MusicColoursTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -58,10 +74,34 @@
 			path = "MusicColours Watch App";
 			sourceTree = "<group>";
 		};
+		4393EAFA9E6C478EA3437293 /* MusicColoursUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = MusicColoursUITests;
+			sourceTree = "<group>";
+		};
+		6A4D9364C2084719817DD501 /* MusicColoursTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = MusicColoursTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		17A672A32F17CA4100DE309B /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F3CF19C4CA0E4B7B873CABBE /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F5335FEF5724473E9004AB13 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -75,6 +115,8 @@
 			isa = PBXGroup;
 			children = (
 				17A672AA2F17CA4100DE309B /* MusicColours Watch App */,
+				6A4D9364C2084719817DD501 /* MusicColours Watch App/MusicColoursTests */,
+				4393EAFA9E6C478EA3437293 /* MusicColours Watch App/MusicColoursUITests */,
 				17A672A12F17CA4100DE309B /* Products */,
 			);
 			sourceTree = "<group>";
@@ -84,6 +126,8 @@
 			children = (
 				17A672A02F17CA4100DE309B /* MusicColours.app */,
 				17A672A62F17CA4100DE309B /* MusicColours Watch App.app */,
+				F71C0562D8714D3CBF9F9C5A /* MusicColoursTests.xctest */,
+				E4E0DD00DF6C4F73B75C744B /* MusicColoursUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -91,6 +135,29 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		0AF53E4AE1DF4865AA9865A9 /* MusicColoursUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = C9A57D32004740E7928E5BF6 /* Build configuration list for PBXNativeTarget "MusicColoursUITests" */;
+			buildPhases = (
+				4A7B522A1DEF4BEBA9DCEC7A /* Sources */,
+				F5335FEF5724473E9004AB13 /* Frameworks */,
+				D0CA5297B46D4035868585CD /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				36A2CBAB030A4C51BE5F70FD /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				4393EAFA9E6C478EA3437293 /* MusicColours Watch App/MusicColoursUITests */,
+			);
+			name = MusicColoursUITests;
+			packageProductDependencies = (
+			);
+			productName = MusicColoursUITests;
+			productReference = E4E0DD00DF6C4F73B75C744B /* MusicColoursUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
 		17A6729F2F17CA4100DE309B /* MusicColours */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 17A672B72F17CA4200DE309B /* Build configuration list for PBXNativeTarget "MusicColours" */;
@@ -132,6 +199,29 @@
 			productReference = 17A672A62F17CA4100DE309B /* MusicColours Watch App.app */;
 			productType = "com.apple.product-type.application";
 		};
+		909091B13E3A4EDE83CAF5C7 /* MusicColoursTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 084D3745845A4785AAF34248 /* Build configuration list for PBXNativeTarget "MusicColoursTests" */;
+			buildPhases = (
+				D9FB1C4EE680401A83F73C59 /* Sources */,
+				F3CF19C4CA0E4B7B873CABBE /* Frameworks */,
+				1852D2B3BB3C438E9D5C2700 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				5FB7927881C042429D82247C /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				6A4D9364C2084719817DD501 /* MusicColours Watch App/MusicColoursTests */,
+			);
+			name = MusicColoursTests;
+			packageProductDependencies = (
+			);
+			productName = MusicColoursTests;
+			productReference = F71C0562D8714D3CBF9F9C5A /* MusicColoursTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -142,10 +232,16 @@
 				LastSwiftUpdateCheck = 2620;
 				LastUpgradeCheck = 2620;
 				TargetAttributes = {
+					0AF53E4AE1DF4865AA9865A9 = {
+						CreatedOnToolsVersion = 26.2;
+					};
 					17A6729F2F17CA4100DE309B = {
 						CreatedOnToolsVersion = 26.2;
 					};
 					17A672A52F17CA4100DE309B = {
+						CreatedOnToolsVersion = 26.2;
+					};
+					909091B13E3A4EDE83CAF5C7 = {
 						CreatedOnToolsVersion = 26.2;
 					};
 				};
@@ -166,6 +262,8 @@
 			targets = (
 				17A6729F2F17CA4100DE309B /* MusicColours */,
 				17A672A52F17CA4100DE309B /* MusicColours Watch App */,
+				909091B13E3A4EDE83CAF5C7 /* MusicColoursTests */,
+				0AF53E4AE1DF4865AA9865A9 /* MusicColoursUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -185,10 +283,38 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		1852D2B3BB3C438E9D5C2700 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D0CA5297B46D4035868585CD /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		17A672A22F17CA4100DE309B /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4A7B522A1DEF4BEBA9DCEC7A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D9FB1C4EE680401A83F73C59 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -202,6 +328,16 @@
 			isa = PBXTargetDependency;
 			target = 17A672A52F17CA4100DE309B /* MusicColours Watch App */;
 			targetProxy = 17A672A82F17CA4100DE309B /* PBXContainerItemProxy */;
+		};
+		36A2CBAB030A4C51BE5F70FD /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 17A672A52F17CA4100DE309B /* MusicColours Watch App */;
+			targetProxy = A87740486AEC4233B6D2B3FB /* PBXContainerItemProxy */;
+		};
+		5FB7927881C042429D82247C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 17A672A52F17CA4100DE309B /* MusicColours Watch App */;
+			targetProxy = 88FCFC69E25E4EC2A422E203 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -424,9 +560,122 @@
 			};
 			name = Release;
 		};
+		1B1BB5A8936D4609A3EA33FA /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = KM4ATH56TL;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = MusicColoursTests;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.webaby.musiccolours.watchappTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MusicColours Watch App.app/MusicColours Watch App";
+				WATCHOS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Debug;
+		};
+		72066E680B8145D3991F9059 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = KM4ATH56TL;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = MusicColoursTests;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.webaby.musiccolours.watchappTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MusicColours Watch App.app/MusicColours Watch App";
+				VALIDATE_PRODUCT = YES;
+				WATCHOS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Release;
+		};
+		78415D89EB4146EF82661D76 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = KM4ATH56TL;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = MusicColoursUITests;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.webaby.musiccolours.watchappUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				TEST_TARGET_NAME = "MusicColours Watch App";
+				WATCHOS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Debug;
+		};
+		CA25BB72302749B8B8B2B4EF /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = KM4ATH56TL;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = MusicColoursUITests;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.webaby.musiccolours.watchappUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = watchos;
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 4;
+				TEST_TARGET_NAME = "MusicColours Watch App";
+				VALIDATE_PRODUCT = YES;
+				WATCHOS_DEPLOYMENT_TARGET = 26.2;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		084D3745845A4785AAF34248 /* Build configuration list for PBXNativeTarget "MusicColoursTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1B1BB5A8936D4609A3EA33FA /* Debug */,
+				72066E680B8145D3991F9059 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		17A6729D2F17CA4000DE309B /* Build configuration list for PBXProject "MusicColours" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -450,6 +699,15 @@
 			buildConfigurations = (
 				17A672B82F17CA4200DE309B /* Debug */,
 				17A672B92F17CA4200DE309B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		C9A57D32004740E7928E5BF6 /* Build configuration list for PBXNativeTarget "MusicColoursUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				78415D89EB4146EF82661D76 /* Debug */,
+				CA25BB72302749B8B8B2B4EF /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

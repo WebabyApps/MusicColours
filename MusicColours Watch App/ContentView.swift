@@ -338,6 +338,7 @@ private struct LogoBouncingView: View {
 
 struct ContentView: View {
     private let premiumProductId: String = "premium.monthly"
+    private let bestScoresStore = BestScoresStore(key: "bestScores")
     @State private var gameState: GameState = .splash
     @State private var score: Int = 0
     @State private var level: Int = 1
@@ -415,7 +416,11 @@ struct ContentView: View {
     @State private var showBonusEffect: Bool = false
 
     // Added states for floating score popups
-    struct ScorePopup: Identifiable { let id = UUID(); var startDate = Date() }
+    struct ScorePopup: Identifiable {
+        let id = UUID()
+        var text: String
+        var startDate = Date()
+    }
     @State private var scorePopups: [ScorePopup] = []
 
     // Added beatPulse state for beat-driven animations
@@ -424,8 +429,16 @@ struct ContentView: View {
     // Added strike system state
     @State private var strikesRemaining: Int = 20
 
-    // Added last popup text for differentiating +1/-1
-    @State private var lastPopupText: String = "+1"
+    // Per-level bonus points for specific colors (+2/+3)
+    @State private var bonusPointsByColor: [GameColor: Int] = [:]
+    @State private var targetChangesSinceBonusShuffle: Int = 0
+    @State private var bestScores: [Int] = []
+    @State private var showRecordsPanel: Bool = false
+    @State private var lastGameScore: Int? = nil
+    @State private var lastGamePlacement: Int? = nil
+    @State private var recordsPanelMode: RecordsPanelMode = .manual
+    @State private var pendingRecordScore: Int? = nil
+    @State private var isNewBestScore: Bool = false
     
     // Added shakeTrigger for shake animation on wrong tap
     @State private var shakeTrigger: Int = 0
@@ -537,6 +550,13 @@ struct ContentView: View {
                         level: level,
                         target: currentTarget,
                         colors: availableColors,
+                        bonusPointsByColor: bonusPointsByColor,
+                        bestScores: bestScores,
+                        showRecordsPanel: $showRecordsPanel,
+                        recordsPanelMode: $recordsPanelMode,
+                        lastGameScore: $lastGameScore,
+                        lastGamePlacement: $lastGamePlacement,
+                        isNewBestScore: $isNewBestScore,
                         timeRemaining: timeRemaining,
                         onTapColor: handleTap(color:),
                         scoreKey: scoreKey,
@@ -549,7 +569,20 @@ struct ContentView: View {
                         upcomingBonus: upcomingBonus,
                         isMuted: isMuted,
                         onToggleMute: { toggleMute() },
-                        onDismissSkull: { dismissSkull() }
+                        onDismissSkull: { dismissSkull() },
+                        onResetBestScores: {
+                            bestScoresStore.reset()
+                            bestScores = []
+                        },
+                        onSaveRecord: { score in
+                            bestScores = bestScoresStore.record(score)
+                            pendingRecordScore = nil
+                            recordsPanelMode = .manual
+                        },
+                        onDiscardRecord: {
+                            pendingRecordScore = nil
+                            recordsPanelMode = .manual
+                        }
                     )
                     .transition(.scale.combined(with: .opacity))
                 case .gameOver:
@@ -560,7 +593,14 @@ struct ContentView: View {
                         gameOverKey: gameOverKey,
                         playAgainKey: playAgainKey,
                         scoreKey: scoreKey,
-                        levelKey: levelKey
+                        levelKey: levelKey,
+                        lastScore: lastGameScore,
+                        lastPlacement: lastGamePlacement,
+                        isNewBestScore: isNewBestScore,
+                        onShowSavePrompt: {
+                            recordsPanelMode = .endGame
+                            showRecordsPanel = true
+                        }
                     )
                     .transition(.opacity)
                 }
@@ -604,12 +644,13 @@ struct ContentView: View {
 
                 if gameState == .playing { BonusIndicators(invincibleUntil: invincibleUntil, slowBgUntil: slowBgUntil) }
 
-                OverlayLayer(showHitEffect: showHitEffect, showBonusEffect: showBonusEffect, scorePopups: scorePopups, popupText: lastPopupText)
+                OverlayLayer(showHitEffect: showHitEffect, showBonusEffect: showBonusEffect, scorePopups: scorePopups)
             }
             .background(Color.black)
             .onAppear {
                 setupAudioSession()
                 loadAvailableTracks()
+                bestScores = bestScoresStore.load()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     if audioPlayer?.isPlaying != true, !availableTracks.isEmpty, !isMuted {
                         print("[Audio] Auto-play on appear:", selectedTrack)
@@ -653,6 +694,19 @@ struct ContentView: View {
                 stopAudio()
                 if !isMuted {
                     startAudioIfAvailable()
+                }
+            }
+            .onChange(of: showRecordsPanel) { _, isOpen in
+                guard gameState == .playing else { return }
+                if isOpen {
+                    stopBeatLoop()
+                } else {
+                    if isCountingDown { return }
+                    if isLevelCompletePresented { return }
+                    updateBeatInterval(syncedToBPM: audioPlayer != nil)
+                    lastBeatDate = Date()
+                    timeRemaining = beatInterval
+                    startBeatLoop()
                 }
             }
             .onReceive(Timer.publish(every: 1/30, on: .main, in: .common).autoconnect()) { _ in
@@ -714,6 +768,16 @@ struct ContentView: View {
 
         // Reset countdown freeze
         countdownFrozenT = nil
+        isCountingDown = false
+        isLevelCompletePresented = false
+        levelCompleteSpin = 0
+        levelCompletePulse = false
+        showRecordsPanel = false
+        recordsPanelMode = .manual
+        lastGameScore = nil
+        lastGamePlacement = nil
+        pendingRecordScore = nil
+        isNewBestScore = false
     }
 
     // MARK: - Level start helpers
@@ -904,13 +968,14 @@ private struct OverlayLayer: View {
     let showHitEffect: Bool
     let showBonusEffect: Bool
     let scorePopups: [ContentView.ScorePopup]
-    let popupText: String
 
     var body: some View {
         ZStack {
             if showHitEffect { HitEffectView() }
             if showBonusEffect { BonusWowEffectView() }
-            ForEach(scorePopups) { _ in FloatingPlusOneView(text: popupText) }
+            ForEach(scorePopups) { popup in
+                FloatingPlusOneView(text: popup.text)
+            }
         }
         .allowsHitTesting(false)
     }
@@ -1350,6 +1415,7 @@ private struct MenuView: View {
                         .clipShape(Circle())
                         .shadow(color: .black.opacity(0.25), radius: 6, x: 0, y: 4)
                 }
+                .accessibilityIdentifier("playButton")
                 .buttonStyle(.plain)
                 
                 // Track selector
@@ -1473,6 +1539,13 @@ private struct GamePlayView: View {
     let level: Int
     let target: GameColor
     let colors: [GameColor]
+    let bonusPointsByColor: [GameColor: Int]
+    let bestScores: [Int]
+    @Binding var showRecordsPanel: Bool
+    @Binding var recordsPanelMode: ContentView.RecordsPanelMode
+    @Binding var lastGameScore: Int?
+    @Binding var lastGamePlacement: Int?
+    @Binding var isNewBestScore: Bool
     let timeRemaining: TimeInterval
     let onTapColor: (GameColor) -> Void
     let scoreKey: LocalizedStringKey
@@ -1488,6 +1561,9 @@ private struct GamePlayView: View {
     let onToggleMute: () -> Void
     
     let onDismissSkull: () -> Void
+    let onResetBestScores: () -> Void
+    let onSaveRecord: (Int) -> Void
+    let onDiscardRecord: () -> Void
 
     // Added local animation state for skull shake and fade
     @State private var skullShakeTrigger: Int = 0
@@ -1501,6 +1577,8 @@ private struct GamePlayView: View {
         case .yellow: return "color_yellow"
         case .purple: return "color_purple"
         case .orange: return "color_orange"
+        case .pink: return "color_pink"
+        case .cyan: return "color_cyan"
         }
     }
     
@@ -1511,6 +1589,25 @@ private struct GamePlayView: View {
         case .slowBackground: return .blue
         case .addTime: return .yellow
         case .deadly: return .black
+        }
+    }
+
+    @ViewBuilder
+    private func gridCell(_ color: GameColor?) -> some View {
+        if let color {
+            ColorButton(
+                color: color,
+                bonusPoints: bonusPointsByColor[color],
+                action: { onTapColor(color) }
+            )
+        } else {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.001))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.001), lineWidth: 1)
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .aspectRatio(1.1, contentMode: .fit)
         }
     }
 
@@ -1539,25 +1636,25 @@ private struct GamePlayView: View {
                         Text("\(strikesRemaining)")
                     }.font(.caption2)
                 }
-                .padding(.horizontal, 6)
+                .padding(.horizontal, 4)
 
-                // Target indicator with ring countdown
+                // Target indicator with ring countdown (slightly smaller to free space for tap targets)
                 ZStack {
                     Circle()
                         .stroke(.white.opacity(0.35), lineWidth: 3)
-                        .frame(width: 90, height: 90)
+                        .frame(width: 74, height: 74)
                         .scaleEffect(beatPulse ? 1.08 : 0.92)
                         .opacity(beatPulse ? 0.55 : 0.2)
                         .animation(.easeOut(duration: 0.18), value: beatPulse)
                     Circle()
                         .fill((giftAvailable ? Color.pink : target.color).gradient)
-                        .frame(width: 70, height: 70)
+                        .frame(width: 56, height: 56)
                         .shadow(color: (giftAvailable ? Color.pink : target.color).opacity(0.5), radius: 6, x: 0, y: 2)
                     Circle()
                         .trim(from: 0, to: max(0.01, CGFloat(timeRemaining)))
                         .stroke(.white.opacity(0.9), style: StrokeStyle(lineWidth: 4, lineCap: .round))
                         .rotationEffect(.degrees(-90))
-                        .frame(width: 76, height: 76)
+                        .frame(width: 60, height: 60)
                         .opacity(0.9)
                     if giftAvailable {
                         let bonusColor = upcomingBonus.map { color(for: $0) } ?? Color.pink
@@ -1565,12 +1662,14 @@ private struct GamePlayView: View {
                             ZStack {
                                 Circle()
                                     .fill(bonusColor)
-                                    .frame(width: 54, height: 54) // Increased from 34 to 54
+                                    .frame(width: 44, height: 44)
                                 Text("☠︎")
-                                    .font(.system(size: 28, weight: .heavy)) // Increased from 16 to 28
+                                    .font(.system(size: 22, weight: .heavy))
                                     .foregroundStyle(.white)
                             }
                             .shadow(radius: 2)
+                            .contentShape(Circle())
+                            .padding(6)
                             .scaleEffect( (beatPulse ? 1.08 : 0.95) * (skullFadeOut ? 0.6 : 1.0) )
                             .opacity(skullFadeOut ? 0.0 : 1.0)
                             .animation(.easeOut(duration: 0.2), value: beatPulse)
@@ -1590,7 +1689,7 @@ private struct GamePlayView: View {
                                 .background(
                                     Circle()
                                         .fill(bonusColor)
-                                        .frame(width: 34, height: 34)
+                                        .frame(width: 30, height: 30)
                                 )
                                 .shadow(radius: 2)
                                 .scaleEffect(beatPulse ? 1.08 : 0.95)
@@ -1601,9 +1700,9 @@ private struct GamePlayView: View {
                             ZStack {
                                 Circle()
                                     .fill(Color.black)
-                                    .frame(width: 48, height: 48) // Increased from 34 to 48
+                                    .frame(width: 40, height: 40)
                                 Text("☠︎")
-                                    .font(.system(size: 24, weight: .heavy)) // Increased from 14 to 24
+                                    .font(.system(size: 20, weight: .heavy))
                                     .foregroundStyle(.white)
                             }
                             .shadow(radius: 2)
@@ -1615,23 +1714,39 @@ private struct GamePlayView: View {
                     }
                 }
                 .modifier(ShakeEffect(trigger: shakeTrigger))
-                .padding(.vertical, 4)
+                .padding(.vertical, 2)
 
                 // Color grid for taps (watch-friendly big buttons)
+                let bottomRowColors = colors.enumerated()
+                    .filter { $0.offset % 2 == 0 }
+                    .map { $0.element }
+                let topRowColors = colors.enumerated()
+                    .filter { $0.offset % 2 == 1 }
+                    .map { $0.element }
+                let upperRow = bottomRowColors.count >= topRowColors.count ? bottomRowColors : topRowColors
+                let lowerRow = bottomRowColors.count >= topRowColors.count ? topRowColors : bottomRowColors
+                let needsCenteredLowerRow = upperRow.count == lowerRow.count + 1
+
+                let isDeadlySkullActive = giftAvailable && upcomingBonus == .deadly
+
                 Grid(horizontalSpacing: 4, verticalSpacing: 4) {
                     GridRow {
-                        ForEach(colors.prefix(2)) { c in
-                            ColorButton(color: c, action: { onTapColor(c) })
-                        }
+                        ForEach(upperRow) { c in gridCell(c) }
                     }
                     GridRow {
-                        ForEach(colors.suffix(from: min(2, colors.count))) { c in
-                            ColorButton(color: c, action: { onTapColor(c) })
+                        if needsCenteredLowerRow {
+                            gridCell(lowerRow.first)
+                            gridCell(nil)
+                            if lowerRow.count > 1 { gridCell(lowerRow[1]) }
+                        } else {
+                            ForEach(lowerRow) { c in gridCell(c) }
                         }
                     }
                 }
+                .allowsHitTesting(!isDeadlySkullActive)
                 .padding(.horizontal, 2)
             }
+            .allowsHitTesting(!showRecordsPanel)
             // Center-left mute button overlay
             VStack {
                 Spacer()
@@ -1650,11 +1765,148 @@ private struct GamePlayView: View {
             }
         }
         .padding(.vertical, 4)
+        .overlay {
+            if showRecordsPanel {
+                Color.black.opacity(0.6)
+                    .ignoresSafeArea()
+                    .accessibilityIdentifier("recordsBackdrop")
+                    .onTapGesture {
+                        showRecordsPanel = false
+                        recordsPanelMode = .manual
+                    }
+            }
+        }
+        .overlay {
+            if showRecordsPanel {
+                BestScoresView(
+                    scores: bestScores,
+                    lastScore: lastGameScore,
+                    lastPlacement: lastGamePlacement,
+                    mode: recordsPanelMode,
+                    isNewBestScore: isNewBestScore,
+                    onReset: onResetBestScores,
+                    onSave: onSaveRecord,
+                    onDiscard: onDiscardRecord
+                )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .transition(.opacity.combined(with: .scale))
+                    .zIndex(1)
+            }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            Button(action: {
+                if showRecordsPanel {
+                    showRecordsPanel = false
+                } else {
+                    recordsPanelMode = .manual
+                    showRecordsPanel = true
+                }
+            }) {
+                Image(systemName: showRecordsPanel ? "eye.slash" : "eye")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(6)
+                    .background(Circle().fill(Color.black.opacity(0.35)))
+            }
+            .accessibilityIdentifier("recordsToggle")
+            .buttonStyle(.plain)
+            .padding(.trailing, 8)
+            .padding(.bottom, 12)
+            .zIndex(3)
+        }
     }
 }
 
+private struct BestScoresView: View {
+    let scores: [Int]
+    let lastScore: Int?
+    let lastPlacement: Int?
+    let mode: ContentView.RecordsPanelMode
+    let isNewBestScore: Bool
+    let onReset: () -> Void
+    let onSave: (Int) -> Void
+    let onDiscard: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Image(systemName: "trophy.fill")
+                    .font(.caption)
+                    .foregroundStyle(.yellow)
+                Text("Ostatnie wyniki")
+                    .font(.headline).bold()
+                    .foregroundStyle(.white)
+                Spacer()
+                Button(action: onReset) {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(6)
+                        .background(Circle().fill(Color.white.opacity(0.15)))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Reset records")
+            }
+            if mode == .endGame, lastPlacement == nil, let score = lastScore {
+                Text("Twoj wynik")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.8))
+                Text("\(score)")
+                    .font(.largeTitle).bold()
+                    .foregroundStyle(.white)
+                if isNewBestScore {
+                    Text("Zapisac rekord?")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.85))
+                    HStack(spacing: 8) {
+                        Button("Tak") { onSave(score) }
+                            .buttonStyle(.borderedProminent)
+                        Button("Nie") { onDiscard() }
+                            .buttonStyle(.bordered)
+                    }
+                    .tint(.white)
+                }
+            } else {
+                if scores.isEmpty {
+                    Text("Brak zapisanych wynikow")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.85))
+                } else {
+                    if mode == .endGame, let score = lastScore, isNewBestScore {
+                        Text("Nowy rekord!")
+                            .font(.caption)
+                            .foregroundStyle(.yellow)
+                        Text("Zapisac rekord?")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.85))
+                        HStack(spacing: 8) {
+                            Button("Tak") { onSave(score) }
+                                .buttonStyle(.borderedProminent)
+                            Button("Nie") { onDiscard() }
+                                .buttonStyle(.bordered)
+                        }
+                        .tint(.white)
+                    }
+                    let lastFive = Array(scores.suffix(5)).reversed()
+                    ForEach(Array(lastFive.enumerated()), id: \.offset) { index, value in
+                        Text("\(index + 1). \(value)")
+                            .font(.title3.bold())
+                            .foregroundStyle(.white.opacity(0.95))
+                    }
+                }
+            }
+            Spacer()
+        }
+        .accessibilityIdentifier("recordsPanel")
+        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+
 private struct ColorButton: View {
     let color: GameColor
+    let bonusPoints: Int?
     var action: () -> Void
     @State private var pressed: Bool = false
 
@@ -1664,12 +1916,26 @@ private struct ColorButton: View {
             action()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { pressed = false }
         } label: {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(color.color)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.2), lineWidth: 1)
-                )
-                .shadow(color: .black.opacity(0.25), radius: 3, x: 0, y: 2)
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(color.color)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.2), lineWidth: 1)
+                    )
+                    .shadow(color: .black.opacity(0.25), radius: 3, x: 0, y: 2)
+
+                if let bonus = bonusPoints, bonus > 1 {
+                    Text("+\(bonus)")
+                        .font(.caption2).bold()
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule().fill(Color.black.opacity(0.35))
+                        )
+                        .offset(x: 10, y: -10)
+                }
+            }
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1687,6 +1953,10 @@ private struct GameOverView: View {
     let playAgainKey: LocalizedStringKey
     let scoreKey: LocalizedStringKey
     let levelKey: LocalizedStringKey
+    let lastScore: Int?
+    let lastPlacement: Int?
+    let isNewBestScore: Bool
+    let onShowSavePrompt: () -> Void
 
     var body: some View {
         VStack(spacing: 8) {
@@ -1709,6 +1979,16 @@ private struct GameOverView: View {
                 Text(playAgainKey)
             }
             .buttonStyle(.borderedProminent)
+            if lastScore != nil && isNewBestScore {
+                Button(action: onShowSavePrompt) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "trophy.fill")
+                            .foregroundStyle(.yellow)
+                        Text(lastPlacement == nil ? "Zapisz wynik" : "Zapisz rekord")
+                        }
+                    }
+                .buttonStyle(.bordered)
+            }
         }
         .padding()
     }
@@ -2100,6 +2380,7 @@ private struct NoteLayer: View {
 // MARK: - Logic
 private extension ContentView {
     enum GameState { case splash, menu, playing, gameOver }
+    enum RecordsPanelMode { case manual, endGame }
     
     func resetLevelTimer() {
         if let seconds = difficulty.timeLimitSeconds {
@@ -2154,6 +2435,8 @@ private extension ContentView {
         completedLevelToShow = 1
         availableColors = GameColor.basic
         applyLevelUpEffectsForCurrentLevel()
+        lastBeatDate = Date()
+        timeRemaining = beatInterval
         // Set strikes and time by difficulty
         strikesRemaining = difficulty.allowedMistakes
         if let seconds = difficulty.timeLimitSeconds {
@@ -2208,6 +2491,13 @@ private extension ContentView {
 
     func beginNextLevelFromOverlay() {
         resetStrikesForNewLevel()
+        if let seconds = difficulty.timeLimitSeconds {
+            levelTimeRemaining = TimeInterval(seconds)
+        } else {
+            levelTimeRemaining = .infinity
+        }
+        lastBeatDate = Date()
+        timeRemaining = beatInterval
         isLevelCompletePresented = false
         levelCompleteSpin = 0
         levelCompletePulse = false
@@ -2270,8 +2560,16 @@ private extension ContentView {
     func applyLevelUpEffectsForCurrentLevel() {
         // Keep at least the basic palette (prevents 4th yellow color from disappearing)
         let baseCount = GameColor.basic.count
-        let desiredCount = min(GameColor.all.count, baseCount + max(0, level - 1))
+        let desiredCount = GameRules.desiredColorCount(
+            level: level,
+            baseCount: baseCount,
+            availableCount: GameColor.all.count,
+            maxCount: 8
+        )
         availableColors = Array(GameColor.all.prefix(desiredCount))
+        bonusPointsByColor = makeBonusPoints(for: availableColors)
+        targetChangesSinceBonusShuffle = 0
+        strikesRemaining = difficulty.allowedMistakes
 
         updateBeatInterval(syncedToBPM: audioPlayer != nil)
         lastBeatDate = Date()
@@ -2288,6 +2586,12 @@ private extension ContentView {
 
         stopAudio()
         if !isMuted { startAudioIfAvailable() }
+    }
+
+    private func makeBonusPoints(for colors: [GameColor]) -> [GameColor: Int] {
+        guard !colors.isEmpty else { return [:] }
+        var rng: any RandomNumberGenerator = SystemRandomNumberGenerator()
+        return BonusPicker.pickBonuses(from: colors, rng: &rng)
     }
 
     func startBeatLoop() {
@@ -2321,6 +2625,11 @@ private extension ContentView {
         currentTarget = availableColors.randomElement() ?? .red
         lastBeatDate = Date()
         timeRemaining = beatInterval
+
+        targetChangesSinceBonusShuffle += 1
+        if GameRules.shouldShuffleBonus(afterTargetChanges: targetChangesSinceBonusShuffle) {
+            bonusPointsByColor = makeBonusPoints(for: availableColors)
+        }
         
         // Count color cycles for hard mode
         if difficulty == .hard {
@@ -2338,6 +2647,9 @@ private extension ContentView {
 
     func handleTap(color: GameColor) {
         guard gameState == .playing else { return }
+        if isCountingDown { return }
+        if isLevelCompletePresented { return }
+        if showRecordsPanel { return }
         // Handle gift bonus tap first
         if giftAvailable {
             if upcomingBonus == .deadly {
@@ -2374,16 +2686,19 @@ private extension ContentView {
         }
         if color == currentTarget {
             correctStreak += 1
-            score += 1
-            lastPopupText = "+1"
+            let points = bonusPointsByColor[color] ?? 1
+            score += points
             WKInterfaceDevice.current().play(.click)  // <--- Added subtle haptic here
+
+            // Shuffle button positions after a correct hit to increase difficulty
+            availableColors.shuffle()
             
             // Show hit effect
             showHitEffect = true
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { showHitEffect = false }
             
             // Add floating score popup
-            scorePopups.append(ScorePopup())
+            scorePopups.append(ScorePopup(text: "+\(points)"))
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                 if !scorePopups.isEmpty { _ = scorePopups.removeFirst() }
             }
@@ -2424,9 +2739,8 @@ private extension ContentView {
                 let applied = min(penalty, score)
                 score -= applied
                 if applied > 0 {
-                    lastPopupText = "-\(applied)"
-                    // Show -1 popup only when there is an actual penalty
-                    scorePopups.append(ScorePopup())
+                    // Show -1/-2 popup only when there is an actual penalty
+                    scorePopups.append(ScorePopup(text: "-\(applied)"))
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                         if !scorePopups.isEmpty { _ = scorePopups.removeFirst() }
                     }
@@ -2501,6 +2815,14 @@ private extension ContentView {
 
     func endGame() {
         gameState = .gameOver
+        let current = bestScoresStore.load()
+        let previousBest = current.max()
+        isNewBestScore = previousBest == nil || score > previousBest!
+        pendingRecordScore = score
+        lastGameScore = score
+        lastGamePlacement = nil
+        recordsPanelMode = .endGame
+        showRecordsPanel = true
         stopAudio()
     }
     
@@ -2871,7 +3193,7 @@ private extension ContentView {
 
 // MARK: - GameColor
 private enum GameColor: String, CaseIterable, Identifiable, Equatable {
-    case red, green, blue, yellow, purple, orange
+    case red, green, blue, yellow, purple, orange, pink, cyan
 
     var id: String { rawValue }
 
@@ -2883,6 +3205,8 @@ private enum GameColor: String, CaseIterable, Identifiable, Equatable {
         case .yellow: return .yellow
         case .purple: return .purple
         case .orange: return .orange
+        case .pink: return .pink
+        case .cyan: return .cyan
         }
     }
 
