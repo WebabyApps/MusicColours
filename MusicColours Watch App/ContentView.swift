@@ -1899,6 +1899,7 @@ private struct BestScoresView: View {
     let onDiscard: () -> Void
     let onDismiss: () -> Void
     @State private var pulseScore: Bool = false
+    @State private var dropScore: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1906,12 +1907,12 @@ private struct BestScoresView: View {
                 Image(systemName: "trophy.fill")
                     .font(.caption)
                     .foregroundStyle(.yellow)
-                Text("Ostatnie wyniki")
+                Text("Recent scores")
                     .font(.headline).bold()
                     .foregroundStyle(.white)
                 Spacer()
                 Button(action: onReset) {
-                    Image(systemName: "arrow.counterclockwise")
+                    Image(systemName: "trash")
                         .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(.white)
                         .padding(6)
@@ -1922,16 +1923,21 @@ private struct BestScoresView: View {
             }
             if mode == .endGame, lastPlacement == nil, let score = lastScore {
                 VStack(spacing: 6) {
-                    Text("Twoj wynik")
+                    Text("Your score")
                         .font(.caption)
                         .foregroundStyle(.white.opacity(0.8))
                     Text("\(score)")
                         .font(.largeTitle).bold()
                         .foregroundStyle(.white)
-                        .scaleEffect(pulseScore ? 1.08 : 0.98)
+                        .scaleEffect(pulseScore ? 1.22 : 0.90)
                         .animation(
                             .easeInOut(duration: 0.8).repeatForever(autoreverses: true),
                             value: pulseScore
+                        )
+                        .offset(y: dropScore ? 0 : -24)
+                        .animation(
+                            .interpolatingSpring(stiffness: 220, damping: 16),
+                            value: dropScore
                         )
                 }
                 .frame(maxWidth: .infinity, alignment: .center)
@@ -1939,38 +1945,39 @@ private struct BestScoresView: View {
                     withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
                         pulseScore = true
                     }
+                    dropScore = true
                 }
                 if isNewBestScore {
-                    Text("Zapisac rekord?")
+                    Text("Save record?")
                         .font(.caption)
                         .foregroundStyle(.white.opacity(0.85))
                     HStack(spacing: 8) {
-                        Button("Tak") { onSave(score) }
+                        Button("Yes") { onSave(score) }
                             .buttonStyle(.borderedProminent)
                             .tint(.yellow)
                             .foregroundStyle(.black)
-                        Button("Nie") { onDiscard() }
+                        Button("No") { onDiscard() }
                             .buttonStyle(.bordered)
                             .tint(.white.opacity(0.8))
                     }
                 }
             } else {
                 if scores.isEmpty {
-                    Text("Brak zapisanych wynikow")
+                    Text("No saved scores")
                         .font(.caption)
                         .foregroundStyle(.white.opacity(0.85))
                 } else {
                     if mode == .endGame, let score = lastScore, isNewBestScore {
-                        Text("Nowy rekord!")
+                        Text("New record!")
                             .font(.caption)
                             .foregroundStyle(.yellow)
-                        Text("Zapisac rekord?")
+                        Text("Save record?")
                             .font(.caption)
                             .foregroundStyle(.white.opacity(0.85))
                         HStack(spacing: 8) {
-                            Button("Tak") { onSave(score) }
+                            Button("Yes") { onSave(score) }
                                 .buttonStyle(.borderedProminent)
-                            Button("Nie") { onDiscard() }
+                            Button("No") { onDiscard() }
                                 .buttonStyle(.bordered)
                         }
                         .tint(.white)
@@ -1996,7 +2003,7 @@ private struct BestScoresView: View {
                         .padding(.horizontal, 4)
                         .background(
                             Capsule()
-                                .fill(isNew ? Color.yellow.opacity(0.18) : Color.clear)
+                                .fill(isNew ? Color.yellow.opacity(0.55) : Color.clear)
                         )
                     }
                 }
@@ -2097,7 +2104,7 @@ private struct GameOverView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "trophy.fill")
                             .foregroundStyle(.yellow)
-                        Text(lastPlacement == nil ? "Zapisz wynik" : "Zapisz rekord")
+                        Text(lastPlacement == nil ? "Save score" : "Save record")
                         }
                     }
                 .buttonStyle(.bordered)
@@ -3162,6 +3169,12 @@ private extension ContentView {
     }
 
     func nextBeat(newLevel: Bool = false) {
+        if giftAvailable {
+            // Freeze target while gift is active so the correct color stays consistent
+            lastBeatDate = Date()
+            timeRemaining = beatInterval
+            return
+        }
         currentTarget = availableColors.randomElement() ?? .red
         lastBeatDate = Date()
         timeRemaining = beatInterval
@@ -3190,7 +3203,7 @@ private extension ContentView {
         if isCountingDown { return }
         if isLevelCompletePresented { return }
         if showRecordsPanel { return }
-        // Handle gift bonus tap only on the active target color
+        // Handle gift bonus tap only on the gift color (locked when spawned)
         if giftAvailable && color == currentTarget {
             if upcomingBonus == .deadly {
                 // Deadly gift ends the game
