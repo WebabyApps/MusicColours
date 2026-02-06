@@ -9,18 +9,21 @@ final class BestScoresStoreTests: XCTestCase {
 
         XCTAssertEqual(store.load(), [])
 
-        var updated = store.record(3)
-        XCTAssertEqual(updated, [3])
+        var updated = store.record(score: 3, avatarId: "avatar_cat")
+        XCTAssertEqual(updated.count, 1)
+        XCTAssertEqual(updated.first?.score, 3)
 
-        updated = store.record(10)
-        XCTAssertEqual(updated, [3, 10])
+        updated = store.record(score: 10, avatarId: "avatar_dog")
+        XCTAssertEqual(updated.count, 2)
+        XCTAssertEqual(updated.last?.score, 10)
 
-        _ = store.record(5)
-        _ = store.record(8)
-        _ = store.record(1)
-        _ = store.record(12)
+        _ = store.record(score: 5, avatarId: "avatar_cat")
+        _ = store.record(score: 8, avatarId: "avatar_cat")
+        _ = store.record(score: 1, avatarId: "avatar_cat")
+        _ = store.record(score: 12, avatarId: "avatar_cat")
 
-        XCTAssertEqual(store.load(), [10, 5, 8, 1, 12])
+        let loaded = store.load()
+        XCTAssertEqual(loaded.map { $0.score }, [10, 5, 8, 1, 12])
 
         store.reset()
         XCTAssertEqual(store.load(), [])

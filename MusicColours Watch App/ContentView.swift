@@ -11,6 +11,9 @@ import Combine
 import WatchKit
 import Accelerate
 import StoreKit
+#if canImport(PhotosUI)
+import PhotosUI
+#endif
 
 private enum AppLanguage: String, CaseIterable, Identifiable { case en; var id: String { rawValue } }
 
@@ -378,6 +381,7 @@ struct ContentView: View {
     // New state properties added as requested
     @State private var freeTracks: [String] = ["track1", "track2", "track3"]
     @AppStorage("premiumUnlocked") private var premiumUnlocked: Bool = false
+    @AppStorage("customAvatarData") private var customAvatarData: Data = Data()
     @State private var giftAvailable: Bool = false
     @State private var correctStreak: Int = 0
     @State private var nextGiftIn: Int = 0
@@ -432,13 +436,14 @@ struct ContentView: View {
     // Per-level bonus points for specific colors (+2/+3)
     @State private var bonusPointsByColor: [GameColor: Int] = [:]
     @State private var targetChangesSinceBonusShuffle: Int = 0
-    @State private var bestScores: [Int] = []
+    @State private var bestScores: [RecordEntry] = []
     @State private var showRecordsPanel: Bool = false
     @State private var lastGameScore: Int? = nil
     @State private var lastGamePlacement: Int? = nil
     @State private var recordsPanelMode: RecordsPanelMode = .manual
     @State private var pendingRecordScore: Int? = nil
     @State private var isNewBestScore: Bool = false
+    @State private var selectedAvatarId: String = AvatarCatalog.defaultId
     
     // Added shakeTrigger for shake animation on wrong tap
     @State private var shakeTrigger: Int = 0
@@ -523,7 +528,7 @@ struct ContentView: View {
                         availableTracks: availableTracks,
                         bpm: bpm,
                         isEstimatingBPM: isEstimatingBPM,
-                        startAction: startCountdown,
+                        startAction: { gameState = .avatarSelect },
                         titleKey: titleKey,
                         subtitleKey: subtitleKey,
                         languageKey: languageKey,
@@ -542,8 +547,19 @@ struct ContentView: View {
                         difficulty: $difficulty,
                         onCycleDifficulty: { difficulty = difficulty.next },
                         isMuted: $isMuted,
-                        onToggleMuteState: { toggleMute() }
+                        onToggleMuteState: { toggleMute() },
+                        selectedAvatarId: $selectedAvatarId,
+                        onRequestPremium: { showPaywall = true }
                     )
+                case .avatarSelect:
+                    AvatarSelectView(
+                        selectedAvatarId: $selectedAvatarId,
+                        premiumUnlocked: premiumUnlocked,
+                        onStart: startCountdown,
+                        onBack: { gameState = .menu },
+                        onRequestPremium: { showPaywall = true }
+                    )
+                    .transition(.opacity)
                 case .playing:
                     GamePlayView(
                         score: score,
@@ -575,13 +591,15 @@ struct ContentView: View {
                             bestScores = []
                         },
                         onSaveRecord: { score in
-                            bestScores = bestScoresStore.record(score)
+                            bestScores = bestScoresStore.record(score: score, avatarId: selectedAvatarId)
                             pendingRecordScore = nil
                             recordsPanelMode = .manual
+                            isNewBestScore = false
                         },
                         onDiscardRecord: {
                             pendingRecordScore = nil
                             recordsPanelMode = .manual
+                            isNewBestScore = false
                         }
                     )
                     .transition(.scale.combined(with: .opacity))
@@ -608,6 +626,42 @@ struct ContentView: View {
                 if showTrackBanner {
                     TrackBannerView(text: selectedTrack)
                         .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
+                if showRecordsPanel && gameState != .playing {
+                    Color.black.opacity(0.6)
+                        .ignoresSafeArea()
+                        .accessibilityIdentifier("recordsBackdrop")
+                        .onTapGesture {
+                            showRecordsPanel = false
+                            recordsPanelMode = .manual
+                        }
+
+                    BestScoresView(
+                        scores: bestScores,
+                        lastScore: lastGameScore,
+                        lastPlacement: lastGamePlacement,
+                        mode: recordsPanelMode,
+                        isNewBestScore: isNewBestScore,
+                        onReset: {
+                            bestScoresStore.reset()
+                            bestScores = []
+                        },
+                        onSave: { score in
+                            bestScores = bestScoresStore.record(score: score, avatarId: selectedAvatarId)
+                            pendingRecordScore = nil
+                            recordsPanelMode = .manual
+                            isNewBestScore = false
+                        },
+                        onDiscard: {
+                            pendingRecordScore = nil
+                            recordsPanelMode = .manual
+                            isNewBestScore = false
+                        }
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .transition(.opacity.combined(with: .scale))
+                    .zIndex(1)
                 }
 
                 if showPaywall {
@@ -1371,6 +1425,8 @@ private struct MenuView: View {
     
     @Binding var isMuted: Bool
     var onToggleMuteState: () -> Void
+    @Binding var selectedAvatarId: String
+    let onRequestPremium: () -> Void
 
     @State private var showDifficultyToast: Bool = false
 
@@ -1403,9 +1459,9 @@ private struct MenuView: View {
                     .ignoresSafeArea()
             }
             .ignoresSafeArea()
-            VStack(spacing: 8) {
-                Spacer(minLength: 8)
-                
+            VStack(spacing: 6) {
+                Spacer(minLength: 4)
+
                 Button(action: startAction) {
                     Image(systemName: "play.fill")
                         .font(.system(size: 24, weight: .bold))
@@ -1433,10 +1489,13 @@ private struct MenuView: View {
                                     selectedTrack = availableTracks.first ?? selectedTrack
                                 }
                             }) {
-                                Image(systemName: "chevron.left").font(.caption2)
+                                Image(systemName: "chevron.left")
+                                    .font(.system(size: 12, weight: .bold))
                             }
                             .buttonStyle(.bordered)
                             .tint(.white)
+                            .frame(width: 40, height: 16)
+                            .contentShape(Rectangle())
 
                             MarqueeText(text: selectedTrack)
                                 .frame(width: 90, height: 22)
@@ -1450,21 +1509,24 @@ private struct MenuView: View {
                                     selectedTrack = availableTracks.first ?? selectedTrack
                                 }
                             }) {
-                                Image(systemName: "chevron.right").font(.caption2)
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 12, weight: .bold))
                             }
                             .buttonStyle(.bordered)
                             .tint(.white)
+                            .frame(width: 40, height: 16)
+                            .contentShape(Rectangle())
                         }
                     }
                 }
                 
                 // Compact controls panel: updated with shared translucent background
-                HStack(spacing: 10) {
+                HStack(spacing: 8) {
                     // Left: smaller mute
                     Button(action: onToggleMuteState) {
                         Image(systemName: isMuted ? "speaker.slash.fill" : (isPlaying ? "speaker.wave.2.fill" : "speaker.slash.fill"))
-                            .font(.system(size: 14, weight: .semibold))
-                            .frame(width: 26, height: 26)
+                            .font(.system(size: 13, weight: .semibold))
+                            .frame(width: 30, height: 30)
                     }
                     .buttonStyle(.bordered)
                     .tint(.white)
@@ -1482,8 +1544,8 @@ private struct MenuView: View {
                         }
                     }) {
                         Image(systemName: "plus.circle")
-                            .font(.system(size: 18, weight: .semibold))
-                            .frame(width: 34, height: 34)
+                            .font(.system(size: 17, weight: .semibold))
+                            .frame(width: 30, height: 30)
                     }
                     .buttonStyle(.bordered)
                     .tint(.white)
@@ -1495,20 +1557,21 @@ private struct MenuView: View {
                         flashDifficultyToast()
                     }) {
                         Image(systemName: difficulty.icon)
-                            .font(.system(size: 16, weight: .semibold))
-                            .frame(width: 28, height: 28)
+                            .font(.system(size: 15, weight: .semibold))
+                            .frame(width: 30, height: 30)
                     }
                     .buttonStyle(.bordered)
                     .tint(.white)
                     .foregroundStyle(.white)
                     .accessibilityLabel(Text("\(difficultyPrefix()): \(difficultyTitleLocalized())"))
                 }
-                .padding(6)
+                .padding(.vertical, 6)
+                .padding(.horizontal, 6)
                 .background(.ultraThinMaterial, in: Capsule())
                 .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
-                
-                
-                Spacer(minLength: 8)
+                .offset(y: 10)
+
+                Spacer(minLength: 4)
             }
             .padding()
             .overlay(alignment: .top) {
@@ -1540,7 +1603,7 @@ private struct GamePlayView: View {
     let target: GameColor
     let colors: [GameColor]
     let bonusPointsByColor: [GameColor: Int]
-    let bestScores: [Int]
+    let bestScores: [RecordEntry]
     @Binding var showRecordsPanel: Bool
     @Binding var recordsPanelMode: ContentView.RecordsPanelMode
     @Binding var lastGameScore: Int?
@@ -1818,7 +1881,7 @@ private struct GamePlayView: View {
 }
 
 private struct BestScoresView: View {
-    let scores: [Int]
+    let scores: [RecordEntry]
     let lastScore: Int?
     let lastPlacement: Int?
     let mode: ContentView.RecordsPanelMode
@@ -1888,10 +1951,21 @@ private struct BestScoresView: View {
                         .tint(.white)
                     }
                     let lastFive = Array(scores.suffix(5)).reversed()
-                    ForEach(Array(lastFive.enumerated()), id: \.offset) { index, value in
-                        Text("\(index + 1). \(value)")
-                            .font(.title3.bold())
-                            .foregroundStyle(.white.opacity(0.95))
+                    ForEach(Array(lastFive.enumerated()), id: \.offset) { index, entry in
+                        HStack(spacing: 8) {
+                            Text("\(index + 1).")
+                                .font(.headline).bold()
+                                .foregroundStyle(.white.opacity(0.9))
+                                .frame(width: 18, alignment: .leading)
+                            AvatarIconView(avatarId: entry.avatarId)
+                                .frame(width: 18, height: 18)
+                            Text(AvatarCatalog.name(for: entry.avatarId))
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(0.9))
+                            Text("\(entry.score)")
+                                .font(.title3.bold())
+                                .foregroundStyle(.white.opacity(0.95))
+                        }
                     }
                 }
             }
@@ -2026,6 +2100,433 @@ private struct BonusIndicators: View {
             now = date
         }
         .transition(.opacity)
+    }
+}
+
+private struct AvatarCatalog {
+    struct Item: Identifiable {
+        let id: String
+        let systemName: String?
+        let assetName: String?
+        let isCustom: Bool
+        let displayName: String
+    }
+
+    static let defaultId: String = "avatar_pet_1"
+    static let customImageKey: String = "customAvatarData"
+
+    static let items: [Item] = [
+        Item(id: "avatar_pet_1", systemName: nil, assetName: "pet_1", isCustom: false, displayName: "Kity"),
+        Item(id: "avatar_pet_2", systemName: nil, assetName: "pet_2", isCustom: false, displayName: "Doggy"),
+        Item(id: "avatar_pet_3", systemName: nil, assetName: "pet_3", isCustom: false, displayName: "Jumper"),
+        Item(id: "avatar_custom_1", systemName: nil, assetName: nil, isCustom: true, displayName: "Custom")
+    ]
+
+    static let carouselItems: [Item] = [
+        items[0], items[1], items[2]
+    ]
+
+    static func name(for avatarId: String) -> String {
+        items.first(where: { $0.id == avatarId })?.displayName ?? "Unknown"
+    }
+
+    static func loadCustomImage() -> UIImage? {
+        guard let data = UserDefaults.standard.data(forKey: customImageKey),
+              !data.isEmpty,
+              let image = UIImage(data: data) else {
+            return nil
+        }
+        return image
+    }
+}
+
+private struct AvatarCarousel: View {
+    @Binding var selectedAvatarId: String
+    let premiumUnlocked: Bool
+    let onRequestPremium: () -> Void
+    var showLabel: Bool = true
+    @State private var showCustomPicker: Bool = false
+
+    var body: some View {
+        VStack(spacing: 6) {
+            if showLabel {
+                Text("Wybierz zwierzaka")
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.8))
+            }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(AvatarCatalog.carouselItems) { item in
+                        AvatarCell(
+                            item: item,
+                            isSelected: selectedAvatarId == item.id
+                        )
+                        .onTapGesture { selectedAvatarId = item.id }
+                    }
+                    AvatarAddCell(isSelected: false)
+                        .onTapGesture {
+                            if premiumUnlocked {
+                                showCustomPicker = true
+                            } else {
+                                onRequestPremium()
+                            }
+                        }
+                }
+                .padding(.horizontal, 2)
+            }
+            .frame(width: 98, height: 34)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.black)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .stroke(Color.white.opacity(0.7), lineWidth: 1)
+                )
+        )
+        .zIndex(2)
+        .sheet(isPresented: $showCustomPicker) {
+            CustomAvatarPicker(
+                selectedAvatarId: $selectedAvatarId
+            )
+        }
+    }
+}
+
+private struct AvatarSelectView: View {
+    @Binding var selectedAvatarId: String
+    let premiumUnlocked: Bool
+    let onStart: () -> Void
+    let onBack: () -> Void
+    let onRequestPremium: () -> Void
+
+    private struct PetItem: Identifiable {
+        let id: String
+        let assetName: String
+        let displayName: String
+        let isCustom: Bool
+    }
+
+    private let pets: [PetItem] = [
+        PetItem(id: "avatar_pet_1", assetName: "pet_1", displayName: "Kity", isCustom: false),
+        PetItem(id: "avatar_pet_2", assetName: "pet_2", displayName: "Doggy", isCustom: false),
+        PetItem(id: "avatar_pet_3", assetName: "pet_3", displayName: "Jumper", isCustom: false)
+    ]
+    private let customId: String = "avatar_custom_1"
+    private let customName: String = "Custom"
+
+    @State private var index: Int = 0
+    #if canImport(PhotosUI)
+    @State private var selectedPhotoItem: PhotosPickerItem? = nil
+    #endif
+    @State private var customImage: UIImage? = nil
+    @State private var errorText: String? = nil
+    @State private var showUnderConstruction: Bool = false
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Text("Select avatar")
+                .font(.caption)
+                .foregroundStyle(.white.opacity(0.85))
+
+            HStack(spacing: 10) {
+                Button(action: { move(-1) }) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 26, height: 26)
+                        .background(Circle().fill(.ultraThinMaterial))
+                }
+                .buttonStyle(.plain)
+
+                Group {
+                    if selectedAvatarId == customId, let customImage {
+                        Image(uiImage: customImage)
+                            .resizable()
+                            .renderingMode(.original)
+                            .interpolation(.high)
+                            .scaledToFit()
+                    } else {
+                        Image(pets[index].assetName)
+                            .resizable()
+                            .renderingMode(.original)
+                            .interpolation(.high)
+                            .scaledToFit()
+                    }
+                }
+                .frame(width: 80, height: 80)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 12)
+                        .onEnded { value in
+                            if value.translation.width <= -18 {
+                                move(1)
+                            } else if value.translation.width >= 18 {
+                                move(-1)
+                            }
+                        }
+                )
+
+                Button(action: { move(1) }) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 26, height: 26)
+                        .background(Circle().fill(.ultraThinMaterial))
+                }
+                .buttonStyle(.plain)
+            }
+
+            Text(currentDisplayName())
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(0.85))
+
+            #if os(iOS)
+            PhotosPicker(
+                selection: $selectedPhotoItem,
+                matching: .images
+            ) {
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 26, height: 26)
+                    .background(Circle().fill(.ultraThinMaterial))
+            }
+            .buttonStyle(.plain)
+            .onTapGesture {
+                if !premiumUnlocked {
+                    onRequestPremium()
+                }
+            }
+            .onChange(of: selectedPhotoItem) { _, newItem in
+                guard let newItem else { return }
+                if !premiumUnlocked {
+                    selectedPhotoItem = nil
+                    return
+                }
+                Task {
+                    if let data = try? await newItem.loadTransferable(type: Data.self),
+                       let image = UIImage(data: data) {
+                        if let resized = resizedTo64(image) {
+                            customImage = resized
+                            if let resizedData = resized.pngData() {
+                                UserDefaults.standard.set(resizedData, forKey: AvatarCatalog.customImageKey)
+                            }
+                            selectedAvatarId = customId
+                            errorText = nil
+                        } else {
+                            errorText = "Image must be 64x64."
+                        }
+                    } else {
+                        errorText = "Image must be 64x64."
+                    }
+                }
+            }
+            #else
+            Button(action: { showUnderConstruction = true }) {
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 26, height: 26)
+                    .background(Circle().fill(.ultraThinMaterial))
+            }
+            .buttonStyle(.plain)
+            .onTapGesture {
+                if !premiumUnlocked {
+                    onRequestPremium()
+                }
+            }
+            #endif
+
+            Button(action: onStart) {
+                Image(systemName: "play.fill")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(.black)
+                    .frame(width: 44, height: 44)
+                    .background(.white)
+                    .clipShape(Circle())
+                    .shadow(color: .black.opacity(0.25), radius: 6, x: 0, y: 4)
+            }
+            .buttonStyle(.plain)
+
+            if let errorText {
+                Text(errorText)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.85))
+            }
+        }
+        .padding(12)
+        .alert("Under construction", isPresented: $showUnderConstruction) {
+            Button("Close", role: .cancel) { }
+        } message: {
+            Text("Custom avatar upload will be available later.")
+        }
+        .overlay(alignment: .topLeading) {
+            Button(action: onBack) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 28, height: 28)
+                    .background(Circle().fill(.ultraThinMaterial))
+            }
+            .buttonStyle(.plain)
+            .padding(.leading, 6)
+            .padding(.top, 6)
+        }
+        .onAppear {
+            if let idx = pets.firstIndex(where: { $0.id == selectedAvatarId }) {
+                index = idx
+            } else if selectedAvatarId != customId {
+                index = 0
+                selectedAvatarId = pets[0].id
+            }
+            customImage = AvatarCatalog.loadCustomImage()
+        }
+    }
+
+    private func move(_ delta: Int) {
+        let count = pets.count
+        index = (index + delta + count) % count
+        selectedAvatarId = pets[index].id
+    }
+
+    private func currentDisplayName() -> String {
+        if selectedAvatarId == customId { return customName }
+        return pets[index].displayName
+    }
+
+    #if os(iOS)
+    private func resizedTo64(_ image: UIImage) -> UIImage? {
+        let target = CGSize(width: 64, height: 64)
+        if image.size.width == target.width, image.size.height == target.height {
+            return image
+        }
+        let renderer = UIGraphicsImageRenderer(size: target)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: target))
+        }
+    }
+    #else
+    private func resizedTo64(_ image: UIImage) -> UIImage? {
+        return nil
+    }
+    #endif
+}
+
+private struct AvatarCell: View {
+    let item: AvatarCatalog.Item
+    let isSelected: Bool
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(isSelected ? Color.white : Color.black)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(isSelected ? Color.white : Color.white.opacity(0.8), lineWidth: 1)
+                )
+            AvatarIconView(avatarId: item.id)
+                .frame(width: 22, height: 22)
+                .foregroundStyle(isSelected ? .black : .white)
+                .shadow(color: .clear, radius: 0, x: 0, y: 0)
+        }
+        .frame(width: 30, height: 30)
+        .shadow(color: .clear, radius: 0, x: 0, y: 0)
+    }
+}
+
+private struct AvatarAddCell: View {
+    let isSelected: Bool
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.black)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(Color.white.opacity(0.8), lineWidth: 1)
+                )
+            Image(systemName: "plus")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(.white)
+                .shadow(color: .clear, radius: 0, x: 0, y: 0)
+        }
+        .frame(width: 30, height: 30)
+        .shadow(color: .clear, radius: 0, x: 0, y: 0)
+    }
+}
+
+private struct CustomAvatarPicker: View {
+    @Binding var selectedAvatarId: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text("Wybierz ikone (Premium)")
+                .font(.headline)
+            HStack(spacing: 12) {
+                Button {
+                    selectedAvatarId = "avatar_custom_1"
+                    dismiss()
+                } label: {
+                    AvatarIconView(avatarId: "avatar_custom_1")
+                        .frame(width: 48, height: 48)
+                }
+                .buttonStyle(.bordered)
+
+                Button {
+                    selectedAvatarId = "avatar_custom_2"
+                    dismiss()
+                } label: {
+                    AvatarIconView(avatarId: "avatar_custom_2")
+                        .frame(width: 48, height: 48)
+                }
+                .buttonStyle(.bordered)
+            }
+            Text("Dodaj wlasna ikonke w Assets jako custom_pet_1 / custom_pet_2")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+        .padding()
+    }
+}
+
+private struct AvatarIconView: View {
+    let avatarId: String
+
+    private var item: AvatarCatalog.Item? {
+        AvatarCatalog.items.first { $0.id == avatarId }
+    }
+
+    var body: some View {
+        if let item, let systemName = item.systemName {
+            Image(systemName: systemName)
+                .resizable()
+                .interpolation(.none)
+                .antialiased(false)
+                .scaledToFit()
+        } else if let item, item.isCustom, let custom = AvatarCatalog.loadCustomImage() {
+            Image(uiImage: custom)
+                .resizable()
+                .renderingMode(.original)
+                .interpolation(.high)
+                .scaledToFit()
+        } else if let item, let assetName = item.assetName {
+            Image(assetName)
+                .resizable()
+                .interpolation(.none)
+                .antialiased(false)
+                .scaledToFit()
+        } else {
+            Image(systemName: "pawprint.fill")
+                .resizable()
+                .interpolation(.none)
+                .antialiased(false)
+                .scaledToFit()
+        }
     }
 }
 
@@ -2379,7 +2880,7 @@ private struct NoteLayer: View {
 
 // MARK: - Logic
 private extension ContentView {
-    enum GameState { case splash, menu, playing, gameOver }
+    enum GameState { case splash, menu, avatarSelect, playing, gameOver }
     enum RecordsPanelMode { case manual, endGame }
     
     func resetLevelTimer() {
@@ -2392,8 +2893,8 @@ private extension ContentView {
 
     func startCountdown() {
         guard !isCountingDown else { return }
-        // Only allow countdown from menu
-        guard gameState == .menu else { return }
+        // Only allow countdown from avatar select
+        guard gameState == .avatarSelect else { return }
 
         // Start from a clean run every time
         resetRunState()
@@ -2816,7 +3317,7 @@ private extension ContentView {
     func endGame() {
         gameState = .gameOver
         let current = bestScoresStore.load()
-        let previousBest = current.max()
+        let previousBest = current.map { $0.score }.max()
         isNewBestScore = previousBest == nil || score > previousBest!
         pendingRecordScore = score
         lastGameScore = score

@@ -115,8 +115,8 @@
 			isa = PBXGroup;
 			children = (
 				17A672AA2F17CA4100DE309B /* MusicColours Watch App */,
-				6A4D9364C2084719817DD501 /* MusicColours Watch App/MusicColoursTests */,
-				4393EAFA9E6C478EA3437293 /* MusicColours Watch App/MusicColoursUITests */,
+				6A4D9364C2084719817DD501 /* MusicColoursTests */,
+				4393EAFA9E6C478EA3437293 /* MusicColoursUITests */,
 				17A672A12F17CA4100DE309B /* Products */,
 			);
 			sourceTree = "<group>";
@@ -149,7 +149,7 @@
 				36A2CBAB030A4C51BE5F70FD /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				4393EAFA9E6C478EA3437293 /* MusicColours Watch App/MusicColoursUITests */,
+				4393EAFA9E6C478EA3437293 /* MusicColoursUITests */,
 			);
 			name = MusicColoursUITests;
 			packageProductDependencies = (
@@ -213,7 +213,7 @@
 				5FB7927881C042429D82247C /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
-				6A4D9364C2084719817DD501 /* MusicColours Watch App/MusicColoursTests */,
+				6A4D9364C2084719817DD501 /* MusicColoursTests */,
 			);
 			name = MusicColoursTests;
 			packageProductDependencies = (
