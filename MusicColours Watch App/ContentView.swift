@@ -657,6 +657,10 @@ struct ContentView: View {
                             pendingRecordScore = nil
                             recordsPanelMode = .manual
                             isNewBestScore = false
+                        },
+                        onDismiss: {
+                            showRecordsPanel = false
+                            recordsPanelMode = .manual
                         }
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1849,7 +1853,11 @@ private struct GamePlayView: View {
                     isNewBestScore: isNewBestScore,
                     onReset: onResetBestScores,
                     onSave: onSaveRecord,
-                    onDiscard: onDiscardRecord
+                    onDiscard: onDiscardRecord,
+                    onDismiss: {
+                        showRecordsPanel = false
+                        recordsPanelMode = .manual
+                    }
                 )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .transition(.opacity.combined(with: .scale))
@@ -1889,6 +1897,8 @@ private struct BestScoresView: View {
     let onReset: () -> Void
     let onSave: (Int) -> Void
     let onDiscard: () -> Void
+    let onDismiss: () -> Void
+    @State private var pulseScore: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1911,12 +1921,25 @@ private struct BestScoresView: View {
                 .accessibilityLabel("Reset records")
             }
             if mode == .endGame, lastPlacement == nil, let score = lastScore {
-                Text("Twoj wynik")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.8))
-                Text("\(score)")
-                    .font(.largeTitle).bold()
-                    .foregroundStyle(.white)
+                VStack(spacing: 6) {
+                    Text("Twoj wynik")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.8))
+                    Text("\(score)")
+                        .font(.largeTitle).bold()
+                        .foregroundStyle(.white)
+                        .scaleEffect(pulseScore ? 1.08 : 0.98)
+                        .animation(
+                            .easeInOut(duration: 0.8).repeatForever(autoreverses: true),
+                            value: pulseScore
+                        )
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+                .onAppear {
+                    withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) {
+                        pulseScore = true
+                    }
+                }
                 if isNewBestScore {
                     Text("Zapisac rekord?")
                         .font(.caption)
@@ -1924,10 +1947,12 @@ private struct BestScoresView: View {
                     HStack(spacing: 8) {
                         Button("Tak") { onSave(score) }
                             .buttonStyle(.borderedProminent)
+                            .tint(.yellow)
+                            .foregroundStyle(.black)
                         Button("Nie") { onDiscard() }
                             .buttonStyle(.bordered)
+                            .tint(.white.opacity(0.8))
                     }
-                    .tint(.white)
                 }
             } else {
                 if scores.isEmpty {
@@ -1952,6 +1977,7 @@ private struct BestScoresView: View {
                     }
                     let lastFive = Array(scores.suffix(5)).reversed()
                     ForEach(Array(lastFive.enumerated()), id: \.offset) { index, entry in
+                        let isNew = isNewBestScore && index == 0 && lastScore == entry.score
                         HStack(spacing: 8) {
                             Text("\(index + 1).")
                                 .font(.headline).bold()
@@ -1966,10 +1992,23 @@ private struct BestScoresView: View {
                                 .font(.title3.bold())
                                 .foregroundStyle(.white.opacity(0.95))
                         }
+                        .padding(.vertical, 2)
+                        .padding(.horizontal, 4)
+                        .background(
+                            Capsule()
+                                .fill(isNew ? Color.yellow.opacity(0.18) : Color.clear)
+                        )
                     }
                 }
             }
             Spacer()
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(.ultraThinMaterial)
+        )
+        .onTapGesture {
+            onDismiss()
         }
         .accessibilityIdentifier("recordsPanel")
         .padding(16)
@@ -2210,9 +2249,9 @@ private struct AvatarSelectView: View {
     }
 
     private let pets: [PetItem] = [
-        PetItem(id: "avatar_pet_1", assetName: "pet_1", displayName: "Kity", isCustom: false),
+        PetItem(id: "avatar_pet_1", assetName: "pet_1", displayName: "Jumper", isCustom: false),
         PetItem(id: "avatar_pet_2", assetName: "pet_2", displayName: "Doggy", isCustom: false),
-        PetItem(id: "avatar_pet_3", assetName: "pet_3", displayName: "Jumper", isCustom: false)
+        PetItem(id: "avatar_pet_3", assetName: "pet_3", displayName: "Kitty", isCustom: false)
     ]
     private let customId: String = "avatar_custom_1"
     private let customName: String = "Custom"
@@ -3151,8 +3190,8 @@ private extension ContentView {
         if isCountingDown { return }
         if isLevelCompletePresented { return }
         if showRecordsPanel { return }
-        // Handle gift bonus tap first
-        if giftAvailable {
+        // Handle gift bonus tap only on the active target color
+        if giftAvailable && color == currentTarget {
             if upcomingBonus == .deadly {
                 // Deadly gift ends the game
                 giftAvailable = false
