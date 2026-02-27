@@ -1,5 +1,7 @@
 import SwiftUI
+#if os(watchOS)
 import WatchKit
+#endif
 
 public struct CountdownOverlay: View {
     @Binding private var isPresented: Bool
@@ -64,7 +66,9 @@ public struct CountdownOverlay: View {
                 if Task.isCancelled { return }
                 await MainActor.run {
                     current = n
+                    #if os(watchOS)
                     WKInterfaceDevice.current().play(.click)
+                    #endif
                 }
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
@@ -72,7 +76,9 @@ public struct CountdownOverlay: View {
             if Task.isCancelled { return }
             await MainActor.run {
                 showGo = true
+                #if os(watchOS)
                 WKInterfaceDevice.current().play(.start)
+                #endif
             }
 
             // short pause for "GO!"

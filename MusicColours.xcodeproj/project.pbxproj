@@ -8,6 +8,27 @@
 
 /* Begin PBXBuildFile section */
 		17A672A72F17CA4100DE309B /* MusicColours Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = 17A672A62F17CA4100DE309B /* MusicColours Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		B00000000000000000000007 /* Music Colours/Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000005 /* Music Colours/Assets.xcassets */; };
+		B00000000000000000000008 /* TrackStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000006 /* TrackStore.swift */; };
+		B00000000000000000000009 /* AvatarStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000007 /* AvatarStore.swift */; };
+		B00000000000000000000010 /* Music Colours/Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000005 /* Music Colours/Assets.xcassets */; };
+		B00000000000000000000101 /* MusicColours Watch App/ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000101 /* MusicColours Watch App/ContentView.swift */; };
+		B00000000000000000000102 /* MusicColours Watch App/ControlPanelView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000102 /* MusicColours Watch App/ControlPanelView.swift */; };
+		B00000000000000000000103 /* MusicColours Watch App/CountdownOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000103 /* MusicColours Watch App/CountdownOverlay.swift */; };
+		B00000000000000000000104 /* MusicColours Watch App/GameRules.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000104 /* MusicColours Watch App/GameRules.swift */; };
+		B00000000000000000000105 /* MusicColours Watch App/HapticPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000105 /* MusicColours Watch App/HapticPlayer.swift */; };
+		B00000000000000000000106 /* MusicColours Watch App/RobotAvatarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000106 /* MusicColours Watch App/RobotAvatarView.swift */; };
+		B00000000000000000000107 /* MusicColours Watch App/RobotPetIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000107 /* MusicColours Watch App/RobotPetIcon.swift */; };
+		B00000000000000000000108 /* MusicColours Watch App/SpriteSheetAnimator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000108 /* MusicColours Watch App/SpriteSheetAnimator.swift */; };
+		B00000000000000000000109 /* MusicColours Watch App/WatchSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000109 /* MusicColours Watch App/WatchSyncManager.swift */; };
+		B00000000000000000000110 /* MusicColours Watch App/SpriteSheets in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000110 /* MusicColours Watch App/SpriteSheets */; };
+		B00000000000000000000111 /* MusicColours Watch App/SoundTracks in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000111 /* MusicColours Watch App/SoundTracks */; };
+		B00000000000000000000112 /* MusicColours Watch App/Ekran_startowy.png in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000112 /* MusicColours Watch App/Ekran_startowy.png */; };
+		B00000000000000000000113 /* MusicColours Watch App/background_musicColours.png in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000113 /* MusicColours Watch App/background_musicColours.png */; };
+		B00000000000000000000114 /* MusicColours Watch App/Logo_without_text.png in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000114 /* MusicColours Watch App/Logo_without_text.png */; };
+		B00000000000000000000115 /* MusicColours Watch App/gift_open.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000115 /* MusicColours Watch App/gift_open.mp3 */; };
+		B00000000000000000000116 /* MusicColours Watch App/tada-fanfare.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000116 /* MusicColours Watch App/tada-fanfare.mp3 */; };
+		B00000000000000000000117 /* MusicColours Watch App/fail.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F00000000000000000000117 /* MusicColours Watch App/fail.mp3 */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -49,9 +70,34 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		1771CC792F37DAE300E1F036 /* MusicColoursIOS.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MusicColoursIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		17A672A02F17CA4100DE309B /* MusicColours.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MusicColours.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		17A672A62F17CA4100DE309B /* MusicColours Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "MusicColours Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		E4E0DD00DF6C4F73B75C744B /* MusicColoursUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MusicColoursUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F00000000000000000000001 /* MusicColours iOS/MusicColours_iOSApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MusicColours iOS/MusicColours_iOSApp.swift"; sourceTree = "<group>"; };
+		F00000000000000000000002 /* MusicColours iOS/iOSContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MusicColours iOS/iOSContentView.swift"; sourceTree = "<group>"; };
+		F00000000000000000000003 /* MusicColours iOS/iOSSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MusicColours iOS/iOSSyncManager.swift"; sourceTree = "<group>"; };
+		F00000000000000000000004 /* MusicColours iOS/DocumentPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MusicColours iOS/DocumentPicker.swift"; sourceTree = "<group>"; };
+		F00000000000000000000005 /* Music Colours/Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Music Colours/Assets.xcassets"; sourceTree = SOURCE_ROOT; };
+		F00000000000000000000006 /* TrackStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackStore.swift; sourceTree = "<group>"; };
+		F00000000000000000000007 /* AvatarStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AvatarStore.swift; sourceTree = "<group>"; };
+		F00000000000000000000101 /* MusicColours Watch App/ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MusicColours Watch App/ContentView.swift"; sourceTree = SOURCE_ROOT; };
+		F00000000000000000000102 /* MusicColours Watch App/ControlPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MusicColours Watch App/ControlPanelView.swift"; sourceTree = SOURCE_ROOT; };
+		F00000000000000000000103 /* MusicColours Watch App/CountdownOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MusicColours Watch App/CountdownOverlay.swift"; sourceTree = SOURCE_ROOT; };
+		F00000000000000000000104 /* MusicColours Watch App/GameRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MusicColours Watch App/GameRules.swift"; sourceTree = SOURCE_ROOT; };
+		F00000000000000000000105 /* MusicColours Watch App/HapticPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MusicColours Watch App/HapticPlayer.swift"; sourceTree = SOURCE_ROOT; };
+		F00000000000000000000106 /* MusicColours Watch App/RobotAvatarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MusicColours Watch App/RobotAvatarView.swift"; sourceTree = SOURCE_ROOT; };
+		F00000000000000000000107 /* MusicColours Watch App/RobotPetIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MusicColours Watch App/RobotPetIcon.swift"; sourceTree = SOURCE_ROOT; };
+		F00000000000000000000108 /* MusicColours Watch App/SpriteSheetAnimator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MusicColours Watch App/SpriteSheetAnimator.swift"; sourceTree = SOURCE_ROOT; };
+		F00000000000000000000109 /* MusicColours Watch App/WatchSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "MusicColours Watch App/WatchSyncManager.swift"; sourceTree = SOURCE_ROOT; };
+		F00000000000000000000110 /* MusicColours Watch App/SpriteSheets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "MusicColours Watch App/SpriteSheets"; sourceTree = SOURCE_ROOT; };
+		F00000000000000000000111 /* MusicColours Watch App/SoundTracks */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "MusicColours Watch App/SoundTracks"; sourceTree = SOURCE_ROOT; };
+		F00000000000000000000112 /* MusicColours Watch App/Ekran_startowy.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "MusicColours Watch App/Ekran_startowy.png"; sourceTree = SOURCE_ROOT; };
+		F00000000000000000000113 /* MusicColours Watch App/background_musicColours.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "MusicColours Watch App/background_musicColours.png"; sourceTree = SOURCE_ROOT; };
+		F00000000000000000000114 /* MusicColours Watch App/Logo_without_text.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "MusicColours Watch App/Logo_without_text.png"; sourceTree = SOURCE_ROOT; };
+		F00000000000000000000115 /* MusicColours Watch App/gift_open.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = "MusicColours Watch App/gift_open.mp3"; sourceTree = SOURCE_ROOT; };
+		F00000000000000000000116 /* MusicColours Watch App/tada-fanfare.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = "MusicColours Watch App/tada-fanfare.mp3"; sourceTree = SOURCE_ROOT; };
+		F00000000000000000000117 /* MusicColours Watch App/fail.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = "MusicColours Watch App/fail.mp3"; sourceTree = SOURCE_ROOT; };
 		F71C0562D8714D3CBF9F9C5A /* MusicColoursTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MusicColoursTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -66,6 +112,11 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		1771CC7A2F37DAE300E1F036 /* Music Colours */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "Music Colours";
+			sourceTree = "<group>";
+		};
 		17A672AA2F17CA4100DE309B /* MusicColours Watch App */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -87,6 +138,13 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		1771CC762F37DAE300E1F036 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		17A672A32F17CA4100DE309B /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -111,13 +169,41 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		1771D0EF2F39123B00E1F036 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				F00000000000000000000101 /* MusicColours Watch App/ContentView.swift */,
+				F00000000000000000000102 /* MusicColours Watch App/ControlPanelView.swift */,
+				F00000000000000000000103 /* MusicColours Watch App/CountdownOverlay.swift */,
+				F00000000000000000000104 /* MusicColours Watch App/GameRules.swift */,
+				F00000000000000000000105 /* MusicColours Watch App/HapticPlayer.swift */,
+				F00000000000000000000106 /* MusicColours Watch App/RobotAvatarView.swift */,
+				F00000000000000000000107 /* MusicColours Watch App/RobotPetIcon.swift */,
+				F00000000000000000000108 /* MusicColours Watch App/SpriteSheetAnimator.swift */,
+				F00000000000000000000109 /* MusicColours Watch App/WatchSyncManager.swift */,
+				F00000000000000000000110 /* MusicColours Watch App/SpriteSheets */,
+				F00000000000000000000111 /* MusicColours Watch App/SoundTracks */,
+				F00000000000000000000112 /* MusicColours Watch App/Ekran_startowy.png */,
+				F00000000000000000000113 /* MusicColours Watch App/background_musicColours.png */,
+				F00000000000000000000114 /* MusicColours Watch App/Logo_without_text.png */,
+				F00000000000000000000115 /* MusicColours Watch App/gift_open.mp3 */,
+				F00000000000000000000116 /* MusicColours Watch App/tada-fanfare.mp3 */,
+				F00000000000000000000117 /* MusicColours Watch App/fail.mp3 */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
 		17A672992F17CA4000DE309B = {
 			isa = PBXGroup;
 			children = (
+				G00000000000000000000001 /* MusicColours iOS */,
+				G00000000000000000000002 /* Shared */,
 				17A672AA2F17CA4100DE309B /* MusicColours Watch App */,
 				6A4D9364C2084719817DD501 /* MusicColoursTests */,
 				4393EAFA9E6C478EA3437293 /* MusicColoursUITests */,
+				1771CC7A2F37DAE300E1F036 /* Music Colours */,
 				17A672A12F17CA4100DE309B /* Products */,
+				1771D0EF2F39123B00E1F036 /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -128,8 +214,30 @@
 				17A672A62F17CA4100DE309B /* MusicColours Watch App.app */,
 				F71C0562D8714D3CBF9F9C5A /* MusicColoursTests.xctest */,
 				E4E0DD00DF6C4F73B75C744B /* MusicColoursUITests.xctest */,
+				1771CC792F37DAE300E1F036 /* MusicColoursIOS.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		G00000000000000000000001 /* MusicColours iOS */ = {
+			isa = PBXGroup;
+			children = (
+				F00000000000000000000005 /* Music Colours/Assets.xcassets */,
+				F00000000000000000000001 /* MusicColours iOS/MusicColours_iOSApp.swift */,
+				F00000000000000000000002 /* MusicColours iOS/iOSContentView.swift */,
+				F00000000000000000000003 /* MusicColours iOS/iOSSyncManager.swift */,
+				F00000000000000000000004 /* MusicColours iOS/DocumentPicker.swift */,
+			);
+			path = "MusicColours iOS";
+			sourceTree = "<group>";
+		};
+		G00000000000000000000002 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				F00000000000000000000006 /* TrackStore.swift */,
+				F00000000000000000000007 /* AvatarStore.swift */,
+			);
+			path = Shared;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -157,6 +265,28 @@
 			productName = MusicColoursUITests;
 			productReference = E4E0DD00DF6C4F73B75C744B /* MusicColoursUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		1771CC782F37DAE300E1F036 /* MusicColoursIOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1771CC832F37DAE500E1F036 /* Build configuration list for PBXNativeTarget "MusicColoursIOS" */;
+			buildPhases = (
+				1771CC752F37DAE300E1F036 /* Sources */,
+				1771CC762F37DAE300E1F036 /* Frameworks */,
+				1771CC772F37DAE300E1F036 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				1771CC7A2F37DAE300E1F036 /* Music Colours */,
+			);
+			name = MusicColoursIOS;
+			packageProductDependencies = (
+			);
+			productName = "Music Colours";
+			productReference = 1771CC792F37DAE300E1F036 /* MusicColoursIOS.app */;
+			productType = "com.apple.product-type.application";
 		};
 		17A6729F2F17CA4100DE309B /* MusicColours */ = {
 			isa = PBXNativeTarget;
@@ -235,6 +365,9 @@
 					0AF53E4AE1DF4865AA9865A9 = {
 						CreatedOnToolsVersion = 26.2;
 					};
+					1771CC782F37DAE300E1F036 = {
+						CreatedOnToolsVersion = 26.2;
+					};
 					17A6729F2F17CA4100DE309B = {
 						CreatedOnToolsVersion = 26.2;
 					};
@@ -264,15 +397,33 @@
 				17A672A52F17CA4100DE309B /* MusicColours Watch App */,
 				909091B13E3A4EDE83CAF5C7 /* MusicColoursTests */,
 				0AF53E4AE1DF4865AA9865A9 /* MusicColoursUITests */,
+				1771CC782F37DAE300E1F036 /* MusicColoursIOS */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		1771CC772F37DAE300E1F036 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B00000000000000000000007 /* Music Colours/Assets.xcassets in Resources */,
+				B00000000000000000000110 /* MusicColours Watch App/SpriteSheets in Resources */,
+				B00000000000000000000111 /* MusicColours Watch App/SoundTracks in Resources */,
+				B00000000000000000000112 /* MusicColours Watch App/Ekran_startowy.png in Resources */,
+				B00000000000000000000113 /* MusicColours Watch App/background_musicColours.png in Resources */,
+				B00000000000000000000114 /* MusicColours Watch App/Logo_without_text.png in Resources */,
+				B00000000000000000000115 /* MusicColours Watch App/gift_open.mp3 in Resources */,
+				B00000000000000000000116 /* MusicColours Watch App/tada-fanfare.mp3 in Resources */,
+				B00000000000000000000117 /* MusicColours Watch App/fail.mp3 in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		17A6729E2F17CA4100DE309B /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B00000000000000000000010 /* Music Colours/Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -300,10 +451,28 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		1771CC752F37DAE300E1F036 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B00000000000000000000101 /* MusicColours Watch App/ContentView.swift in Sources */,
+				B00000000000000000000102 /* MusicColours Watch App/ControlPanelView.swift in Sources */,
+				B00000000000000000000103 /* MusicColours Watch App/CountdownOverlay.swift in Sources */,
+				B00000000000000000000104 /* MusicColours Watch App/GameRules.swift in Sources */,
+				B00000000000000000000105 /* MusicColours Watch App/HapticPlayer.swift in Sources */,
+				B00000000000000000000106 /* MusicColours Watch App/RobotAvatarView.swift in Sources */,
+				B00000000000000000000107 /* MusicColours Watch App/RobotPetIcon.swift in Sources */,
+				B00000000000000000000108 /* MusicColours Watch App/SpriteSheetAnimator.swift in Sources */,
+				B00000000000000000000109 /* MusicColours Watch App/WatchSyncManager.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		17A672A22F17CA4100DE309B /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				B00000000000000000000008 /* TrackStore.swift in Sources */,
+				B00000000000000000000009 /* AvatarStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -342,6 +511,75 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		1771CC812F37DAE500E1F036 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = KM4ATH56TL;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "Webaby.Music-Colours";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		1771CC822F37DAE500E1F036 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = KM4ATH56TL;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "Webaby.Music-Colours";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 		17A672B12F17CA4200DE309B /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -468,7 +706,7 @@
 				DEVELOPMENT_TEAM = KM4ATH56TL;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = MusicColours;
+				INFOPLIST_KEY_CFBundleDisplayName = "Music Colours";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKWatchOnly = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -501,7 +739,7 @@
 				DEVELOPMENT_TEAM = KM4ATH56TL;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = MusicColours;
+				INFOPLIST_KEY_CFBundleDisplayName = "Music Colours";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
 				INFOPLIST_KEY_WKWatchOnly = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -528,10 +766,12 @@
 		17A672B82F17CA4200DE309B /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = KM4ATH56TL;
-				INFOPLIST_KEY_CFBundleDisplayName = NewColours;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Music Colours";
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = io.webaby.musiccolours;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -539,16 +779,19 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
 		17A672B92F17CA4200DE309B /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = KM4ATH56TL;
-				INFOPLIST_KEY_CFBundleDisplayName = NewColours;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Music Colours";
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = io.webaby.musiccolours;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -556,6 +799,7 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
 				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;
@@ -672,6 +916,15 @@
 			buildConfigurations = (
 				1B1BB5A8936D4609A3EA33FA /* Debug */,
 				72066E680B8145D3991F9059 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		1771CC832F37DAE500E1F036 /* Build configuration list for PBXNativeTarget "MusicColoursIOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1771CC812F37DAE500E1F036 /* Debug */,
+				1771CC822F37DAE500E1F036 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

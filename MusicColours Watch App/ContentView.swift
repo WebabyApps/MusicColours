@@ -6,14 +6,16 @@
 //
 
 import SwiftUI
+#if os(iOS)
+import UIKit
+#endif
+#if os(watchOS)
+import WatchKit
+#endif
 import AVFoundation
 import Combine
-import WatchKit
 import Accelerate
 import StoreKit
-#if canImport(PhotosUI)
-import PhotosUI
-#endif
 
 private enum AppLanguage: String, CaseIterable, Identifiable { case en; var id: String { rawValue } }
 
@@ -340,6 +342,7 @@ private struct LogoBouncingView: View {
 }
 
 struct ContentView: View {
+    var onTabBarVisibilityChange: ((Bool) -> Void)? = nil
     private let premiumProductId: String = "premium.monthly"
     private let bestScoresStore = BestScoresStore(key: "bestScores")
     @State private var gameState: GameState = .splash
@@ -356,6 +359,7 @@ struct ContentView: View {
     @State private var audioPlayer: AVAudioPlayer?
     @State private var giftOpenPlayer: AVAudioPlayer? = nil
     @State private var fanfarePlayer: AVAudioPlayer? = nil
+    @State private var panelPlayer: AVAudioPlayer? = nil
     
     @State private var bpm: Double = 100 // beats per minute for sync with audio
     @State private var availableTracks: [String] = [] // filenames without extension
@@ -380,8 +384,8 @@ struct ContentView: View {
 
     // New state properties added as requested
     @State private var freeTracks: [String] = ["track1", "track2", "track3"]
+    @State private var premiumTracks: [String] = ["track4", "track5", "track6"]
     @AppStorage("premiumUnlocked") private var premiumUnlocked: Bool = false
-    @AppStorage("customAvatarData") private var customAvatarData: Data = Data()
     @State private var giftAvailable: Bool = false
     @State private var correctStreak: Int = 0
     @State private var nextGiftIn: Int = 0
@@ -407,6 +411,13 @@ struct ContentView: View {
 
     // Added gift beats remaining state
     @State private var giftBeatsRemaining: Int = 0
+    @State private var pendingAvatarUnlockId: String? = nil
+    @State private var showAvatarUnlock: Bool = false
+    @State private var unlockedAvatarId: String? = nil
+    @State private var pendingTrackUnlockName: String? = nil
+    @State private var showTrackUnlock: Bool = false
+    @State private var unlockedTrackName: String? = nil
+    @State private var allTrackNames: [String] = []
 
     // Splash related states
     @State private var showPulseVideo: Bool = true
@@ -426,6 +437,7 @@ struct ContentView: View {
         var startDate = Date()
     }
     @State private var scorePopups: [ScorePopup] = []
+    @State private var lastTapTimestamp: TimeInterval = 0
 
     // Added beatPulse state for beat-driven animations
     @State private var beatPulse: Bool = false
@@ -448,6 +460,7 @@ struct ContentView: View {
     // Added shakeTrigger for shake animation on wrong tap
     @State private var shakeTrigger: Int = 0
     @State private var completedLevelToShow: Int = 1
+    @State private var previousLevelTrack: String? = nil
 
     // Difficulty selection and rules
     enum Difficulty: CaseIterable { case easy, medium, hard
@@ -493,219 +506,263 @@ struct ContentView: View {
     }
     
 
+    @ViewBuilder
+    private var backgroundView: some View {
+        AnimatedDepthBackground(
+            phase: backgroundPhase,
+            colors: availableColors.map { $0.color },
+            bgSpeed: effectiveBgSpeed,
+            beatPulse: beatPulse
+        )
+        .ignoresSafeArea()
+        .saturation(gameState == .gameOver ? 0.2 : 1.0)
+        .blur(radius: gameState == .gameOver ? 2 : 0)
+        .animation(.easeInOut(duration: 0.35), value: gameState)
+    }
+
+    @ViewBuilder
+    private var mainContentView: some View {
+        switch gameState {
+        case .splash:
+            SplashView(
+                showPulseVideo: $showPulseVideo,
+                showFallingText: $showFallingText,
+                musicOffset: $musicOffset,
+                coloursOffset: $coloursOffset,
+                impactScale: $impactScale,
+                onFinish: {
+                    gameState = .menu
+                    isAnimatingBG = true
+                }
+            )
+            .transition(.opacity)
+        case .menu:
+            MenuView(
+                appLanguage: $appLanguageRaw,
+                selectedTrack: $selectedTrack,
+                availableTracks: availableTracks,
+                bpm: bpm,
+                isEstimatingBPM: isEstimatingBPM,
+                startAction: { gameState = .avatarSelect },
+                titleKey: titleKey,
+                subtitleKey: subtitleKey,
+                languageKey: languageKey,
+                startKey: startKey,
+                premiumUnlocked: $premiumUnlocked,
+                allowOneFreeCustomTrack: $allowOneFreeCustomTrack,
+                showPaywall: $showPaywall,
+                isPlaying: (audioPlayer?.isPlaying ?? false),
+                onToggleMute: {
+                    if audioPlayer?.isPlaying == true {
+                        stopAudio()
+                    } else {
+                        startAudioIfAvailable()
+                    }
+                },
+                difficulty: $difficulty,
+                onCycleDifficulty: { difficulty = difficulty.next },
+                isMuted: $isMuted,
+                onToggleMuteState: { toggleMute() },
+                selectedAvatarId: $selectedAvatarId,
+                onRequestPremium: { showPaywall = true }
+            )
+        case .avatarSelect:
+            AvatarSelectView(
+                selectedAvatarId: $selectedAvatarId,
+                premiumUnlocked: premiumUnlocked,
+                onStart: startCountdown,
+                onBack: { gameState = .menu },
+                onRequestPremium: { showPaywall = true }
+            )
+            .transition(.opacity)
+        case .playing:
+            GamePlayView(
+                score: score,
+                level: level,
+                target: currentTarget,
+                colors: availableColors,
+                bonusPointsByColor: bonusPointsByColor,
+                bestScores: bestScores,
+                showRecordsPanel: $showRecordsPanel,
+                recordsPanelMode: $recordsPanelMode,
+                lastGameScore: $lastGameScore,
+                lastGamePlacement: $lastGamePlacement,
+                isNewBestScore: $isNewBestScore,
+                timeRemaining: timeRemaining,
+                onTapColor: handleTap(color:),
+                scoreKey: scoreKey,
+                levelKey: levelKey,
+                giftAvailable: giftAvailable,
+                beatPulse: beatPulse,
+                levelTimeRemaining: levelTimeRemaining,
+                strikesRemaining: strikesRemaining,
+                shakeTrigger: shakeTrigger,
+                upcomingBonus: upcomingBonus,
+                isMuted: isMuted,
+                onToggleMute: { toggleMute() },
+                selectedAvatarId: selectedAvatarId,
+                onDismissSkull: { dismissSkull() },
+                onResetBestScores: {
+                    bestScoresStore.reset()
+                    bestScores = []
+                },
+                onSaveRecord: { score in
+                    bestScores = bestScoresStore.record(score: score, avatarId: selectedAvatarId)
+                    pendingRecordScore = nil
+                    recordsPanelMode = .manual
+                    isNewBestScore = false
+                },
+                onDiscardRecord: {
+                    pendingRecordScore = nil
+                    recordsPanelMode = .manual
+                    isNewBestScore = false
+                },
+                trackName: selectedTrack,
+                onOpenRecordsPanelSound: { playPanelOpen() },
+                onCollectGift: { collectGift() }
+            )
+            .transition(.scale.combined(with: .opacity))
+        case .gameOver:
+            GameOverView(
+                score: score,
+                level: level,
+                restartAction: restart,
+                gameOverKey: gameOverKey,
+                playAgainKey: playAgainKey,
+                scoreKey: scoreKey,
+                levelKey: levelKey,
+                selectedAvatarId: selectedAvatarId,
+                lastScore: lastGameScore,
+                lastPlacement: lastGamePlacement,
+                isNewBestScore: isNewBestScore,
+                onShowSavePrompt: {
+                    recordsPanelMode = .endGame
+                    showRecordsPanel = true
+                }
+            )
+            .transition(.opacity)
+        }
+    }
+
+    @ViewBuilder
+    private var overlaysView: some View {
+        if showTrackBanner {
+            TrackBannerView(text: selectedTrack)
+                .transition(.move(edge: .top).combined(with: .opacity))
+        }
+
+        if showRecordsPanel && gameState != .playing {
+            Color.black.opacity(0.6)
+                .ignoresSafeArea()
+                .accessibilityIdentifier("recordsBackdrop")
+                .onTapGesture {
+                    showRecordsPanel = false
+                    recordsPanelMode = .manual
+                }
+
+            BestScoresView(
+                scores: bestScores,
+                lastScore: lastGameScore,
+                lastPlacement: lastGamePlacement,
+                mode: recordsPanelMode,
+                isNewBestScore: isNewBestScore,
+                selectedAvatarId: selectedAvatarId,
+                onReset: {
+                    bestScoresStore.reset()
+                    bestScores = []
+                },
+                onSave: { score in
+                    bestScores = bestScoresStore.record(score: score, avatarId: selectedAvatarId)
+                    pendingRecordScore = nil
+                    recordsPanelMode = .manual
+                    isNewBestScore = false
+                },
+                onDiscard: {
+                    pendingRecordScore = nil
+                    recordsPanelMode = .manual
+                    isNewBestScore = false
+                },
+                onDismiss: {
+                    showRecordsPanel = false
+                    recordsPanelMode = .manual
+                }
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .transition(.opacity.combined(with: .scale))
+            .zIndex(1)
+        }
+
+        if showPaywall {
+            PaywallView(
+                onPurchase: { Task { await purchasePremium() } },
+                onRestore: { Task { await restorePurchases() } },
+                onClose: { showPaywall = false },
+                priceText: premiumProduct?.displayPrice,
+                periodText: subscriptionPeriodText(for: premiumProduct),
+                isProcessing: purchaseInProgress,
+                errorText: purchaseError,
+                statusText: subscriptionStatusText
+            )
+            .transition(.scale.combined(with: .opacity))
+        }
+
+        if showAvatarUnlock, let unlockedAvatarId {
+            AvatarUnlockOverlayView(
+                avatarId: unlockedAvatarId,
+                onClose: { showAvatarUnlock = false }
+            )
+            .transition(.opacity.combined(with: .scale))
+            .zIndex(70)
+        }
+
+        if showTrackUnlock, let unlockedTrackName {
+            TrackUnlockOverlayView(
+                trackName: unlockedTrackName,
+                onClose: { showTrackUnlock = false }
+            )
+            .transition(.opacity.combined(with: .scale))
+            .zIndex(70)
+        }
+
+        // Countdown overlay should appear on the gameplay screen
+        if gameState == .playing && isCountingDown {
+            CountdownOverlayView(value: countdownValue)
+                .transition(.opacity)
+                .zIndex(50)
+        }
+        if gameState == .playing && isLevelCompletePresented {
+            LevelCompleteOverlayView(
+                level: completedLevelToShow,
+                badge: levelCompleteBadge,
+                spin: levelCompleteSpin,
+                pulse: levelCompletePulse,
+                avatarId: selectedAvatarId,
+                selectedTrack: $selectedTrack,
+                availableTracks: availableTracks,
+                disallowedTrack: previousLevelTrack,
+                onPlay: { beginNextLevelFromOverlay() }
+            )
+            .transition(.opacity)
+            .zIndex(60)
+        }
+
+        if gameState == .playing {
+            BonusIndicators(invincibleUntil: invincibleUntil, slowBgUntil: slowBgUntil)
+        }
+
+        OverlayLayer(showHitEffect: showHitEffect, showBonusEffect: showBonusEffect, scorePopups: scorePopups)
+    }
+
     var body: some View {
         NavigationStack(path: $path) {
             ZStack {
-                AnimatedDepthBackground(
-                    phase: backgroundPhase,
-                    colors: availableColors.map { $0.color },
-                    bgSpeed: effectiveBgSpeed,
-                    beatPulse: beatPulse
-                )
-                    .ignoresSafeArea()
-                    .saturation(gameState == .gameOver ? 0.2 : 1.0)
-                    .blur(radius: gameState == .gameOver ? 2 : 0)
-                    .animation(.easeInOut(duration: 0.35), value: gameState)
-
-                switch gameState {
-                case .splash:
-                    SplashView(
-                        showPulseVideo: $showPulseVideo,
-                        showFallingText: $showFallingText,
-                        musicOffset: $musicOffset,
-                        coloursOffset: $coloursOffset,
-                        impactScale: $impactScale,
-                        onFinish: {
-                            gameState = .menu
-                            isAnimatingBG = true
-                        }
-                    )
-                    .transition(.opacity)
-                case .menu:
-                    MenuView(
-                        appLanguage: $appLanguageRaw,
-                        selectedTrack: $selectedTrack,
-                        availableTracks: availableTracks,
-                        bpm: bpm,
-                        isEstimatingBPM: isEstimatingBPM,
-                        startAction: { gameState = .avatarSelect },
-                        titleKey: titleKey,
-                        subtitleKey: subtitleKey,
-                        languageKey: languageKey,
-                        startKey: startKey,
-                        premiumUnlocked: $premiumUnlocked,
-                        allowOneFreeCustomTrack: $allowOneFreeCustomTrack,
-                        showPaywall: $showPaywall,
-                        isPlaying: (audioPlayer?.isPlaying ?? false),
-                        onToggleMute: {
-                            if audioPlayer?.isPlaying == true {
-                                stopAudio()
-                            } else {
-                                startAudioIfAvailable()
-                            }
-                        },
-                        difficulty: $difficulty,
-                        onCycleDifficulty: { difficulty = difficulty.next },
-                        isMuted: $isMuted,
-                        onToggleMuteState: { toggleMute() },
-                        selectedAvatarId: $selectedAvatarId,
-                        onRequestPremium: { showPaywall = true }
-                    )
-                case .avatarSelect:
-                    AvatarSelectView(
-                        selectedAvatarId: $selectedAvatarId,
-                        premiumUnlocked: premiumUnlocked,
-                        onStart: startCountdown,
-                        onBack: { gameState = .menu },
-                        onRequestPremium: { showPaywall = true }
-                    )
-                    .transition(.opacity)
-                case .playing:
-                    GamePlayView(
-                        score: score,
-                        level: level,
-                        target: currentTarget,
-                        colors: availableColors,
-                        bonusPointsByColor: bonusPointsByColor,
-                        bestScores: bestScores,
-                        showRecordsPanel: $showRecordsPanel,
-                        recordsPanelMode: $recordsPanelMode,
-                        lastGameScore: $lastGameScore,
-                        lastGamePlacement: $lastGamePlacement,
-                        isNewBestScore: $isNewBestScore,
-                        timeRemaining: timeRemaining,
-                        onTapColor: handleTap(color:),
-                        scoreKey: scoreKey,
-                        levelKey: levelKey,
-                        giftAvailable: giftAvailable,
-                        beatPulse: beatPulse,
-                        levelTimeRemaining: levelTimeRemaining,
-                        strikesRemaining: strikesRemaining,
-                        shakeTrigger: shakeTrigger,
-                        upcomingBonus: upcomingBonus,
-                        isMuted: isMuted,
-                        onToggleMute: { toggleMute() },
-                        onDismissSkull: { dismissSkull() },
-                        onResetBestScores: {
-                            bestScoresStore.reset()
-                            bestScores = []
-                        },
-                        onSaveRecord: { score in
-                            bestScores = bestScoresStore.record(score: score, avatarId: selectedAvatarId)
-                            pendingRecordScore = nil
-                            recordsPanelMode = .manual
-                            isNewBestScore = false
-                        },
-                        onDiscardRecord: {
-                            pendingRecordScore = nil
-                            recordsPanelMode = .manual
-                            isNewBestScore = false
-                        }
-                    )
-                    .transition(.scale.combined(with: .opacity))
-                case .gameOver:
-                    GameOverView(
-                        score: score,
-                        level: level,
-                        restartAction: restart,
-                        gameOverKey: gameOverKey,
-                        playAgainKey: playAgainKey,
-                        scoreKey: scoreKey,
-                        levelKey: levelKey,
-                        lastScore: lastGameScore,
-                        lastPlacement: lastGamePlacement,
-                        isNewBestScore: isNewBestScore,
-                        onShowSavePrompt: {
-                            recordsPanelMode = .endGame
-                            showRecordsPanel = true
-                        }
-                    )
-                    .transition(.opacity)
-                }
-
-                if showTrackBanner {
-                    TrackBannerView(text: selectedTrack)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
-
-                if showRecordsPanel && gameState != .playing {
-                    Color.black.opacity(0.6)
-                        .ignoresSafeArea()
-                        .accessibilityIdentifier("recordsBackdrop")
-                        .onTapGesture {
-                            showRecordsPanel = false
-                            recordsPanelMode = .manual
-                        }
-
-                    BestScoresView(
-                        scores: bestScores,
-                        lastScore: lastGameScore,
-                        lastPlacement: lastGamePlacement,
-                        mode: recordsPanelMode,
-                        isNewBestScore: isNewBestScore,
-                        onReset: {
-                            bestScoresStore.reset()
-                            bestScores = []
-                        },
-                        onSave: { score in
-                            bestScores = bestScoresStore.record(score: score, avatarId: selectedAvatarId)
-                            pendingRecordScore = nil
-                            recordsPanelMode = .manual
-                            isNewBestScore = false
-                        },
-                        onDiscard: {
-                            pendingRecordScore = nil
-                            recordsPanelMode = .manual
-                            isNewBestScore = false
-                        },
-                        onDismiss: {
-                            showRecordsPanel = false
-                            recordsPanelMode = .manual
-                        }
-                    )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .transition(.opacity.combined(with: .scale))
-                    .zIndex(1)
-                }
-
-                if showPaywall {
-                    PaywallView(
-                        onPurchase: { Task { await purchasePremium() } },
-                        onRestore: { Task { await restorePurchases() } },
-                        onClose: { showPaywall = false },
-                        priceText: premiumProduct?.displayPrice,
-                        periodText: subscriptionPeriodText(for: premiumProduct),
-                        isProcessing: purchaseInProgress,
-                        errorText: purchaseError,
-                        statusText: subscriptionStatusText
-                    )
-                    .transition(.scale.combined(with: .opacity))
-                }
-
-                // Countdown overlay should appear on the gameplay screen
-                if gameState == .playing && isCountingDown {
-                    CountdownOverlayView(value: countdownValue)
-                        .transition(.opacity)
-                        .zIndex(50)
-                }
-                if gameState == .playing && isLevelCompletePresented {
-                    LevelCompleteOverlayView(
-                        level: completedLevelToShow,
-                        badge: levelCompleteBadge,
-                        spin: levelCompleteSpin,
-                        pulse: levelCompletePulse,
-                        onPlay: { beginNextLevelFromOverlay() }
-                    )
-                    .transition(.opacity)
-                    .zIndex(60)
-                }
-
-                if gameState == .playing { BonusIndicators(invincibleUntil: invincibleUntil, slowBgUntil: slowBgUntil) }
-
-                OverlayLayer(showHitEffect: showHitEffect, showBonusEffect: showBonusEffect, scorePopups: scorePopups)
+                backgroundView
+                mainContentView
+                overlaysView
             }
             .background(Color.black)
             .onAppear {
+                WatchSyncManager.shared.start()
                 setupAudioSession()
                 loadAvailableTracks()
                 bestScores = bestScoresStore.load()
@@ -724,12 +781,17 @@ struct ContentView: View {
                     coloursOffset = -200
                     impactScale = 1.0
                 }
+                onTabBarVisibilityChange?(gameState == .menu)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .tracksUpdated)) { _ in
+                loadAvailableTracks()
             }
             .onDisappear {
                 transactionListenerTask?.cancel()
                 transactionListenerTask = nil
             }
             .onChange(of: gameState) { _, newValue in
+                onTabBarVisibilityChange?(newValue == .menu)
                 if newValue == .playing {
                     // If we entered .playing only to show the countdown, do not start timers yet
                     if isCountingDown { return }
@@ -864,13 +926,13 @@ struct ContentView: View {
         switch bonus {
         case .freeTrack:
             allowOneFreeCustomTrack = true
-            WKInterfaceDevice.current().play(.success)
+            playHaptic(.success)
         case .invincibility:
             invincibleUntil = Date().addingTimeInterval(10)
-            WKInterfaceDevice.current().play(.success)
+            playHaptic(.success)
         case .slowBackground:
             slowBgUntil = Date().addingTimeInterval(12)
-            WKInterfaceDevice.current().play(.success)
+            playHaptic(.success)
         case .addTime:
             // Bonus: reset timers + restore mistakes
             // 1) Level timer: reset to full limit for timed modes
@@ -890,7 +952,7 @@ struct ContentView: View {
             shakeTrigger = 0
 
             // Optional: small haptic feedback if you already use haptics for other bonuses
-            WKInterfaceDevice.current().play(.success)
+            playHaptic(.success)
         case .deadly:
             // Deadly bonus: do nothing here (should be handled elsewhere)
             break
@@ -912,16 +974,13 @@ struct ContentView: View {
                 for u in urls { names.insert(u.deletingPathExtension().lastPathComponent) }
             }
         }
-        availableTracks = Array(names).sorted()
-        print("[Audio] Found tracks in bundle (any ext):", availableTracks)
-        // Keep only free tracks visible if not premium and no gift
-        if !premiumUnlocked && !allowOneFreeCustomTrack {
-            // Ensure default free names exist; if not, fall back to any found
-            let presentFree = freeTracks.filter { availableTracks.contains($0) }
-            if !presentFree.isEmpty {
-                availableTracks = presentFree
-            }
+        for name in TrackStore.importedTrackNames() {
+            names.insert(name)
         }
+        let all = Array(names).sorted()
+        allTrackNames = all
+        print("[Audio] Found tracks in bundle (any ext):", all)
+        availableTracks = unlockedTrackNames(from: all)
         if availableTracks.isEmpty { availableTracks = freeTracks }
         if !availableTracks.contains(selectedTrack) { selectedTrack = availableTracks.first ?? "track1" }
 
@@ -935,10 +994,56 @@ struct ContentView: View {
         print("[Audio] Selected track:", selectedTrack)
     }
 
+    private let trackUnlockKey: String = "giftUnlockedTrackIds"
+
+    private func unlockedTrackNames(from all: [String]) -> [String] {
+        if premiumUnlocked { return all }
+        var unlocked = Set(freeTracks)
+        unlocked.formUnion(loadGiftUnlockedTracks())
+        if allowOneFreeCustomTrack {
+            unlocked.formUnion(TrackStore.importedTrackNames())
+        }
+        return all.filter { unlocked.contains($0) }
+    }
+
+    private func loadGiftUnlockedTracks() -> Set<String> {
+        let list = UserDefaults.standard.stringArray(forKey: trackUnlockKey) ?? []
+        return Set(list)
+    }
+
+    private func recordGiftUnlockedTrack(name: String) {
+        var set = loadGiftUnlockedTracks()
+        set.insert(name)
+        UserDefaults.standard.set(Array(set), forKey: trackUnlockKey)
+    }
+
+    private func randomLockedTrackName() -> String? {
+        let unlocked = Set(unlockedTrackNames(from: allTrackNames))
+        let locked = allTrackNames.filter { name in
+            name.hasPrefix("track") && !unlocked.contains(name)
+        }
+        return locked.randomElement()
+    }
+
     // (If there is a function that sets isLevelCompletePresented = true and completedLevelToShow,
     //  add the following before dismissing overlay/starting next level)
     // Safety: make sure strikes are reset for the next level start
     // resetStrikesForNewLevel()
+}
+
+private enum HapticEvent { case success, failure, click, start }
+
+private func playHaptic(_ event: HapticEvent) {
+    #if os(watchOS)
+    switch event {
+    case .success: WKInterfaceDevice.current().play(.success)
+    case .failure: WKInterfaceDevice.current().play(.failure)
+    case .click: WKInterfaceDevice.current().play(.click)
+    case .start: WKInterfaceDevice.current().play(.start)
+    }
+    #else
+    // No-op on iOS for now (could add UIImpactFeedbackGenerator)
+    #endif
 }
 
 // MARK: - AnimatedDepthBackground
@@ -1074,6 +1179,8 @@ private struct SplashView: View {
     @Binding var impactScale: CGFloat
     var onFinish: () -> Void
 
+    @Environment(\.horizontalSizeClass) private var hSize
+
     @State private var hitPlayer: AVAudioPlayer? = nil
     @State private var showWordmark: Bool = false
     @State private var wordmarkOffset: CGFloat = -160
@@ -1092,21 +1199,22 @@ private struct SplashView: View {
 
         // mały "impact" jak w Twoich tekstach
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            WKInterfaceDevice.current().play(.success)
+            playHaptic(.success)
             playHit()
         }
     }
 
 
     var body: some View {
+        let isPhone = (hSize == .compact)
         ZStack {
             Color.black.ignoresSafeArea()
             if showPulseVideo {
                 LogoBouncingView()
-                    .frame(width: 120, height: 120)
+                    .frame(width: isPhone ? 170 : 120, height: isPhone ? 170 : 120)
                     .onAppear {
                         // Play a short intro haptic
-                        WKInterfaceDevice.current().play(.start)
+                        playHaptic(.start)
                         // After a short delay, transition to falling text
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2.1) {
                             withAnimation(.easeInOut(duration: 0.25)) {
@@ -1119,17 +1227,31 @@ private struct SplashView: View {
                     }
             }
             if showWordmark {
-                VStack {
-                    Spacer().frame(height: 26) // żeby było wyżej niż Music/Colours (dopasujesz)
-                    
-                    WordmarkDrawView()
-                        .frame(width: 220, height: 60)
-                        .offset(x: wordmarkXOffset, y: wordmarkOffset)
-                        .shadow(color: .black.opacity(0.4), radius: 8, x: 0, y: 6)
+                Group {
+                    if isPhone {
+                        VStack {
+                            Spacer()
+                            WordmarkDrawView()
+                                .frame(width: 360, height: 98)
+                                .offset(x: wordmarkXOffset, y: wordmarkOffset)
+                                .shadow(color: .black.opacity(0.4), radius: 8, x: 0, y: 6)
+                            Spacer()
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else {
+                        VStack {
+                            Spacer().frame(height: 26) // żeby było wyżej niż Music/Colours (dopasujesz)
+                            
+                            WordmarkDrawView()
+                                .frame(width: 220, height: 60)
+                                .offset(x: wordmarkXOffset, y: wordmarkOffset)
+                                .shadow(color: .black.opacity(0.4), radius: 8, x: 0, y: 6)
 
-                    Spacer()
+                            Spacer()
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .onAppear {
                     // Po chwili przejście do Music/Colours
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2.1) {
@@ -1142,33 +1264,80 @@ private struct SplashView: View {
                 }
             }
             if showFallingText {
-                VStack(spacing: 0) {
-                    Text("Music")
-                        .font(.system(size: 42, weight: .heavy, design: .rounded))
-                        .foregroundStyle(LinearGradient(colors: [.pink, .purple, .blue], startPoint: .topLeading, endPoint: .bottomTrailing))
-                        .scaleEffect(impactScale)
-                        .offset(y: musicOffset)
-                        .shadow(color: .black.opacity(0.4), radius: 8, x: 0, y: 6)
-                    Text("Colours")
-                        .font(.system(size: 42, weight: .heavy, design: .rounded))
-                        .foregroundStyle(LinearGradient(colors: [.yellow, .orange, .red], startPoint: .topLeading, endPoint: .bottomTrailing))
-                        .scaleEffect(impactScale)
-                        .offset(y: coloursOffset)
-                        .shadow(color: .black.opacity(0.4), radius: 8, x: 0, y: 6)
+                if isPhone {
+                    VStack {
+                        Spacer()
+                        VStack(spacing: 0) {
+                            Text("Music")
+                                .font(.system(size: 56, weight: .heavy, design: .rounded))
+                                .foregroundStyle(LinearGradient(colors: [.pink, .purple, .blue], startPoint: .topLeading, endPoint: .bottomTrailing))
+                                .scaleEffect(impactScale)
+                                .offset(y: musicOffset)
+                                .shadow(color: .black.opacity(0.4), radius: 8, x: 0, y: 6)
+                            Text("Colours")
+                                .font(.system(size: 56, weight: .heavy, design: .rounded))
+                                .foregroundStyle(LinearGradient(colors: [.yellow, .orange, .red], startPoint: .topLeading, endPoint: .bottomTrailing))
+                                .scaleEffect(impactScale)
+                                .offset(y: coloursOffset)
+                                .shadow(color: .black.opacity(0.4), radius: 8, x: 0, y: 6)
+                        }
+                        Spacer()
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    VStack(spacing: 0) {
+                        Text("Music")
+                            .font(.system(size: 42, weight: .heavy, design: .rounded))
+                            .foregroundStyle(LinearGradient(colors: [.pink, .purple, .blue], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .scaleEffect(impactScale)
+                            .offset(y: musicOffset)
+                            .shadow(color: .black.opacity(0.4), radius: 8, x: 0, y: 6)
+                        Text("Colours")
+                            .font(.system(size: 42, weight: .heavy, design: .rounded))
+                            .foregroundStyle(LinearGradient(colors: [.yellow, .orange, .red], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .scaleEffect(impactScale)
+                            .offset(y: coloursOffset)
+                            .shadow(color: .black.opacity(0.4), radius: 8, x: 0, y: 6)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
         }
     }
 
     private func startFalling() {
+        let isPhone = (hSize == .compact)
+
+        if isPhone {
+            withAnimation(.interpolatingSpring(stiffness: 180, damping: 12)) {
+                musicOffset = 0
+                coloursOffset = 0
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                playHaptic(.success)
+                playHit()
+                withAnimation(.spring(response: 0.2, dampingFraction: 0.5)) { impactScale = 1.15 }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) { impactScale = 1.0 }
+                    // Hold, then finish
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            showFallingText = false
+                        }
+                        onFinish()
+                    }
+                }
+            }
+            return
+        }
+
         // Animate MUSIC fall
         withAnimation(.interpolatingSpring(stiffness: 180, damping: 12)) {
             musicOffset = 0
         }
         // Impact for MUSIC
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
-            WKInterfaceDevice.current().play(.success)
+            playHaptic(.success)
             playHit()
             withAnimation(.spring(response: 0.2, dampingFraction: 0.5)) { impactScale = 1.15 }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
@@ -1180,7 +1349,7 @@ private struct SplashView: View {
             }
             // Impact for COLOURS
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.45) {
-                WKInterfaceDevice.current().play(.success)
+                playHaptic(.success)
                 playHit()
                 withAnimation(.spring(response: 0.2, dampingFraction: 0.5)) { impactScale = 1.2 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
@@ -1263,6 +1432,10 @@ private struct LevelCompleteOverlayView: View {
     let badge: String
     let spin: Double
     let pulse: Bool
+    let avatarId: String
+    @Binding var selectedTrack: String
+    let availableTracks: [String]
+    let disallowedTrack: String?
     let onPlay: () -> Void
 
     // Self-contained animation state (so animation always runs even if parent state isn't updating)
@@ -1272,8 +1445,22 @@ private struct LevelCompleteOverlayView: View {
     @State private var turtleX: CGFloat = -120
     @State private var turtleWiggle: CGFloat = 0
     @State private var fireFlicker: CGFloat = 0
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var hSize
+    #endif
 
     var body: some View {
+        #if os(iOS)
+        let isPhone = (hSize == .compact)
+        #else
+        let isPhone = false
+        #endif
+        let trackWidth: CGFloat = isPhone ? 220 : 90
+        let trackHeight: CGFloat = isPhone ? 36 : 20
+        let trackButtonWidth: CGFloat = isPhone ? 40 : 26
+        let trackButtonHeight: CGFloat = isPhone ? 28 : 12
+        let labelFont: Font = isPhone ? .subheadline : .caption2
+
         ZStack {
             Color.black.opacity(0.55).ignoresSafeArea()
 
@@ -1287,6 +1474,39 @@ private struct LevelCompleteOverlayView: View {
                 Text("Ready for the next level?")
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .opacity(0.9)
+
+                if !allowedTracks.isEmpty {
+                    VStack(spacing: 4) {
+                        Text("Track")
+                            .font(labelFont)
+                            .foregroundStyle(.white.opacity(0.85))
+                        HStack(spacing: 6) {
+                            Button(action: { moveTrack(-1) }) {
+                                Image(systemName: "chevron.left")
+                                    .font(.system(size: isPhone ? 14 : 12, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: trackButtonWidth, height: trackButtonHeight)
+                                    .background(Capsule().fill(.ultraThinMaterial))
+                            }
+                            .buttonStyle(.plain)
+                            .contentShape(Rectangle())
+
+                            MarqueeText(text: selectedTrack, font: isPhone ? .headline : .caption2, forceMarquee: true)
+                                .frame(width: trackWidth, height: trackHeight)
+                                .background(Capsule().fill(.ultraThinMaterial))
+
+                            Button(action: { moveTrack(1) }) {
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: isPhone ? 14 : 12, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: trackButtonWidth, height: trackButtonHeight)
+                                    .background(Capsule().fill(.ultraThinMaterial))
+                            }
+                            .buttonStyle(.plain)
+                            .contentShape(Rectangle())
+                        }
+                    }
+                }
 
                 Button(action: onPlay) {
                     HStack(spacing: 6) {
@@ -1309,6 +1529,9 @@ private struct LevelCompleteOverlayView: View {
             .padding(.horizontal, 10)
         }
         .onAppear {
+            if !allowedTracks.isEmpty, disallowedTrack != nil, selectedTrack == disallowedTrack {
+                selectedTrack = allowedTracks.first ?? selectedTrack
+            }
             // Always start animations on appear (fixes "no animation" issue)
             guard !didStart else { return }
             didStart = true
@@ -1348,6 +1571,24 @@ private struct LevelCompleteOverlayView: View {
         }
     }
 
+    private var allowedTracks: [String] {
+        if let disallowedTrack, availableTracks.count > 1 {
+            return availableTracks.filter { $0 != disallowedTrack }
+        }
+        return availableTracks
+    }
+
+    private func moveTrack(_ delta: Int) {
+        let list = allowedTracks
+        guard !list.isEmpty else { return }
+        if let idx = list.firstIndex(of: selectedTrack) {
+            let next = (idx + delta + list.count) % list.count
+            selectedTrack = list[next]
+        } else {
+            selectedTrack = list.first ?? selectedTrack
+        }
+    }
+
     @ViewBuilder
     private var badgeView: some View {
         // Prefer parent-provided values if they are actively driving animation,
@@ -1355,7 +1596,11 @@ private struct LevelCompleteOverlayView: View {
         let effectiveSpin: Double = (spin != 0) ? spin : localSpin
         let effectivePulse: Bool = pulse || localPulse
 
-        if badge == "🐢" {
+        if !avatarId.isEmpty {
+            AvatarDisplayView(avatarId: avatarId)
+                .frame(width: 80, height: 80)
+                .shadow(radius: 4)
+        } else if badge == "🐢" {
             // Turtle: moves across a lane + wiggles (easy to notice on watch)
             ZStack {
                 RoundedRectangle(cornerRadius: 14)
@@ -1433,6 +1678,10 @@ private struct MenuView: View {
     let onRequestPremium: () -> Void
 
     @State private var showDifficultyToast: Bool = false
+    @State private var showAddOnPhone: Bool = false
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var hSize
+    #endif
 
     private func difficultyPrefix() -> String { "Level" }
 
@@ -1452,6 +1701,20 @@ private struct MenuView: View {
     }
 
     var body: some View {
+        #if os(iOS)
+        let isPhone = (hSize == .compact)
+        #else
+        let isPhone = false
+        #endif
+        let playSize: CGFloat = isPhone ? 96 : 60
+        let controlSize: CGFloat = isPhone ? 48 : 30
+        let trackWidth: CGFloat = isPhone ? 280 : 90
+        let trackHeight: CGFloat = isPhone ? 52 : 22
+        let trackButtonWidth: CGFloat = isPhone ? 54 : 40
+        let trackButtonHeight: CGFloat = isPhone ? 22 : 16
+        let headerFont: Font = isPhone ? .headline : .caption2
+        let labelFont: Font = isPhone ? .subheadline : .caption2
+
         ZStack {
             GeometryReader { proxy in
                 let size = proxy.size
@@ -1468,9 +1731,9 @@ private struct MenuView: View {
 
                 Button(action: startAction) {
                     Image(systemName: "play.fill")
-                        .font(.system(size: 24, weight: .bold))
+                        .font(.system(size: isPhone ? 32 : 24, weight: .bold))
                         .foregroundStyle(.black)
-                        .frame(width: 60, height: 60)
+                        .frame(width: playSize, height: playSize)
                         .background(.white)
                         .clipShape(Circle())
                         .shadow(color: .black.opacity(0.25), radius: 6, x: 0, y: 4)
@@ -1482,7 +1745,7 @@ private struct MenuView: View {
                 if !availableTracks.isEmpty {
                     VStack(spacing: 4) {
                         Text("Track")
-                            .font(.caption2)
+                            .font(labelFont)
                             .foregroundStyle(.white.opacity(0.8))
                         HStack(spacing: 6) {
                             Button(action: {
@@ -1494,15 +1757,15 @@ private struct MenuView: View {
                                 }
                             }) {
                                 Image(systemName: "chevron.left")
-                                    .font(.system(size: 12, weight: .bold))
+                                    .font(.system(size: isPhone ? 14 : 12, weight: .bold))
                             }
                             .buttonStyle(.bordered)
                             .tint(.white)
-                            .frame(width: 40, height: 16)
+                            .frame(width: trackButtonWidth, height: trackButtonHeight)
                             .contentShape(Rectangle())
 
-                            MarqueeText(text: selectedTrack)
-                                .frame(width: 90, height: 22)
+                            MarqueeText(text: selectedTrack, font: isPhone ? .headline : .caption2, forceMarquee: true)
+                                .frame(width: trackWidth, height: trackHeight)
                                 .background(Capsule().fill(.ultraThinMaterial))
 
                             Button(action: {
@@ -1514,11 +1777,11 @@ private struct MenuView: View {
                                 }
                             }) {
                                 Image(systemName: "chevron.right")
-                                    .font(.system(size: 12, weight: .bold))
+                                    .font(.system(size: isPhone ? 14 : 12, weight: .bold))
                             }
                             .buttonStyle(.bordered)
                             .tint(.white)
-                            .frame(width: 40, height: 16)
+                            .frame(width: trackButtonWidth, height: trackButtonHeight)
                             .contentShape(Rectangle())
                         }
                     }
@@ -1529,8 +1792,8 @@ private struct MenuView: View {
                     // Left: smaller mute
                     Button(action: onToggleMuteState) {
                         Image(systemName: isMuted ? "speaker.slash.fill" : (isPlaying ? "speaker.wave.2.fill" : "speaker.slash.fill"))
-                            .font(.system(size: 13, weight: .semibold))
-                            .frame(width: 30, height: 30)
+                            .font(.system(size: isPhone ? 18 : 13, weight: .semibold))
+                            .frame(width: controlSize, height: controlSize)
                     }
                     .buttonStyle(.bordered)
                     .tint(.white)
@@ -1538,18 +1801,11 @@ private struct MenuView: View {
 
                     // Center: plus (premium/import)
                     Button(action: {
-                        if premiumUnlocked || allowOneFreeCustomTrack {
-                            // TODO: present file picker/import flow
-                            if allowOneFreeCustomTrack {
-                                allowOneFreeCustomTrack = false // consume the gift only when actually importing
-                            }
-                        } else {
-                            showPaywall = true
-                        }
+                        showPaywall = true
                     }) {
                         Image(systemName: "plus.circle")
-                            .font(.system(size: 17, weight: .semibold))
-                            .frame(width: 30, height: 30)
+                            .font(.system(size: isPhone ? 22 : 17, weight: .semibold))
+                            .frame(width: controlSize, height: controlSize)
                     }
                     .buttonStyle(.bordered)
                     .tint(.white)
@@ -1561,8 +1817,8 @@ private struct MenuView: View {
                         flashDifficultyToast()
                     }) {
                         Image(systemName: difficulty.icon)
-                            .font(.system(size: 15, weight: .semibold))
-                            .frame(width: 30, height: 30)
+                            .font(.system(size: isPhone ? 20 : 15, weight: .semibold))
+                            .frame(width: controlSize, height: controlSize)
                     }
                     .buttonStyle(.bordered)
                     .tint(.white)
@@ -1595,6 +1851,13 @@ private struct MenuView: View {
                         }
                 }
             }
+            #if !os(watchOS)
+            .alert("Add on iPhone", isPresented: $showAddOnPhone) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("Import tracks from Files in the iPhone app.")
+            }
+            #endif
         }
         .ignoresSafeArea()
         .background(Color.black.opacity(0.001))
@@ -1626,15 +1889,23 @@ private struct GamePlayView: View {
     
     let isMuted: Bool
     let onToggleMute: () -> Void
+    let selectedAvatarId: String
     
     let onDismissSkull: () -> Void
     let onResetBestScores: () -> Void
     let onSaveRecord: (Int) -> Void
     let onDiscardRecord: () -> Void
+    let trackName: String
+    let onOpenRecordsPanelSound: () -> Void
+    let onCollectGift: () -> Void
 
     // Added local animation state for skull shake and fade
     @State private var skullShakeTrigger: Int = 0
     @State private var skullFadeOut: Bool = false
+    @State private var avatarPulse: Bool = false
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var hSize
+    #endif
 
     private func nameKey(for color: GameColor) -> LocalizedStringKey {
         switch color {
@@ -1679,11 +1950,21 @@ private struct GamePlayView: View {
     }
 
     var body: some View {
-        ZStack {
+        #if os(watchOS)
+        watchBody
+        #else
+        iosBody
+        #endif
+    }
+
+    #if os(watchOS)
+    private var watchBody: some View {
+        let ringSize: CGFloat = 74
+        let coreSize: CGFloat = 56
+        let trimSize: CGFloat = 60
+        return ZStack {
             VStack(spacing: 6) {
                 HStack {
-                    // Removed top-left mute button as requested
-                    
                     HStack(spacing: 4) {
                         Text(scoreKey).font(.caption2)
                         Text("\(score)").font(.caption2)
@@ -1705,23 +1986,23 @@ private struct GamePlayView: View {
                 }
                 .padding(.horizontal, 4)
 
-                // Target indicator with ring countdown (slightly smaller to free space for tap targets)
+                // Target indicator
                 ZStack {
                     Circle()
                         .stroke(.white.opacity(0.35), lineWidth: 3)
-                        .frame(width: 74, height: 74)
+                        .frame(width: ringSize, height: ringSize)
                         .scaleEffect(beatPulse ? 1.08 : 0.92)
                         .opacity(beatPulse ? 0.55 : 0.2)
                         .animation(.easeOut(duration: 0.18), value: beatPulse)
                     Circle()
                         .fill((giftAvailable ? Color.pink : target.color).gradient)
-                        .frame(width: 56, height: 56)
+                        .frame(width: coreSize, height: coreSize)
                         .shadow(color: (giftAvailable ? Color.pink : target.color).opacity(0.5), radius: 6, x: 0, y: 2)
                     Circle()
                         .trim(from: 0, to: max(0.01, CGFloat(timeRemaining)))
                         .stroke(.white.opacity(0.9), style: StrokeStyle(lineWidth: 4, lineCap: .round))
                         .rotationEffect(.degrees(-90))
-                        .frame(width: 60, height: 60)
+                        .frame(width: trimSize, height: trimSize)
                         .opacity(0.9)
                     if giftAvailable {
                         let bonusColor = upcomingBonus.map { color(for: $0) } ?? Color.pink
@@ -1742,7 +2023,6 @@ private struct GamePlayView: View {
                             .animation(.easeOut(duration: 0.2), value: beatPulse)
                             .modifier(ShakeEffect(trigger: skullShakeTrigger))
                             .onTapGesture {
-                                // trigger shake + fade, then dismiss
                                 skullShakeTrigger += 1
                                 withAnimation(.easeOut(duration: 0.25)) { skullFadeOut = true }
                                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) {
@@ -1783,7 +2063,7 @@ private struct GamePlayView: View {
                 .modifier(ShakeEffect(trigger: shakeTrigger))
                 .padding(.vertical, 2)
 
-                // Color grid for taps (watch-friendly big buttons)
+                // Color grid (watch)
                 let bottomRowColors = colors.enumerated()
                     .filter { $0.offset % 2 == 0 }
                     .map { $0.element }
@@ -1814,7 +2094,6 @@ private struct GamePlayView: View {
                 .padding(.horizontal, 2)
             }
             .allowsHitTesting(!showRecordsPanel)
-            // Center-left mute button overlay
             VStack {
                 Spacer()
             }
@@ -1829,6 +2108,11 @@ private struct GamePlayView: View {
                 }
                 .buttonStyle(.plain)
                 .padding(.leading, 4)
+            }
+            .overlay(alignment: .trailing) {
+                AvatarDisplayView(avatarId: selectedAvatarId)
+                    .frame(width: 32, height: 32)
+                    .padding(.trailing, 4)
             }
         }
         .padding(.vertical, 4)
@@ -1851,6 +2135,7 @@ private struct GamePlayView: View {
                     lastPlacement: lastGamePlacement,
                     mode: recordsPanelMode,
                     isNewBestScore: isNewBestScore,
+                    selectedAvatarId: selectedAvatarId,
                     onReset: onResetBestScores,
                     onSave: onSaveRecord,
                     onDiscard: onDiscardRecord,
@@ -1886,6 +2171,303 @@ private struct GamePlayView: View {
             .zIndex(3)
         }
     }
+    #else
+    private var iosBody: some View {
+        #if os(iOS)
+        let isPhone = (UIDevice.current.userInterfaceIdiom == .phone)
+        #else
+        let isPhone = false
+        #endif
+        let topFont: Font = isPhone ? .subheadline : .caption2
+        let ringSize: CGFloat = isPhone ? 140 : 74
+        let coreSize: CGFloat = isPhone ? 110 : 56
+        let trimSize: CGFloat = isPhone ? 120 : 60
+        let gridScale: CGFloat = isPhone ? 0.72 : 0.9
+        let gridTopPad: CGFloat = isPhone ? 4 : 0
+        let gridBottomPad: CGFloat = isPhone ? -6 : 0
+        let gridYOffset: CGFloat = 0
+        let targetYOffset: CGFloat = isPhone ? -70 : -32
+
+        return ZStack {
+            // Header at top (iPhone HUD)
+            VStack(spacing: 6) {
+                HStack(spacing: 8) {
+                    hudPill(title: "Score", value: "\(score)", systemImage: "trophy.fill")
+                    hudPill(title: "Level", value: "\(level)", systemImage: "flag.fill")
+                    hudPill(title: "Time", value: "\(Int(max(0, levelTimeRemaining)))s", systemImage: "timer")
+                    Spacer(minLength: 4)
+                    hudPillCompact(value: "\(strikesRemaining)", systemImage: "xmark.circle")
+                }
+                .padding(.horizontal, 12)
+                .padding(.top, 6)
+                Spacer()
+            }
+
+            // Target indicator centered on screen
+            ZStack {
+                Circle()
+                    .stroke(.white.opacity(0.35), lineWidth: 3)
+                    .frame(width: ringSize, height: ringSize)
+                    .scaleEffect(beatPulse ? 1.08 : 0.92)
+                    .opacity(beatPulse ? 0.55 : 0.2)
+                    .animation(.easeOut(duration: 0.18), value: beatPulse)
+                Circle()
+                    .fill((giftAvailable ? Color.pink : target.color).gradient)
+                    .frame(width: coreSize, height: coreSize)
+                    .shadow(color: (giftAvailable ? Color.pink : target.color).opacity(0.5), radius: 6, x: 0, y: 2)
+                Circle()
+                    .trim(from: 0, to: max(0.01, CGFloat(timeRemaining)))
+                    .stroke(.white.opacity(0.9), style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .frame(width: trimSize, height: trimSize)
+                    .opacity(0.9)
+                if giftAvailable {
+                    let bonusColor = upcomingBonus.map { color(for: $0) } ?? Color.pink
+                    if upcomingBonus == .deadly {
+                        ZStack {
+                            Circle()
+                                .fill(bonusColor)
+                                .frame(width: 44, height: 44)
+                            Text("☠︎")
+                                .font(.system(size: 22, weight: .heavy))
+                                .foregroundStyle(.white)
+                        }
+                        .shadow(radius: 2)
+                        .contentShape(Circle())
+                        .padding(6)
+                        .scaleEffect( (beatPulse ? 1.08 : 0.95) * (skullFadeOut ? 0.6 : 1.0) )
+                        .opacity(skullFadeOut ? 0.0 : 1.0)
+                        .animation(.easeOut(duration: 0.2), value: beatPulse)
+                        .modifier(ShakeEffect(trigger: skullShakeTrigger))
+                        .onTapGesture {
+                            // trigger shake + fade, then dismiss
+                            skullShakeTrigger += 1
+                            withAnimation(.easeOut(duration: 0.25)) { skullFadeOut = true }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.26) {
+                                onDismissSkull()
+                                skullFadeOut = false
+                            }
+                        }
+                    } else {
+                        Image(systemName: "gift.fill")
+                            .foregroundStyle(.white)
+                            .background(
+                                Circle()
+                                    .fill(bonusColor)
+                                    .frame(width: 30, height: 30)
+                            )
+                            .shadow(radius: 2)
+                            .scaleEffect(beatPulse ? 1.08 : 0.95)
+                            .animation(.easeOut(duration: 0.2), value: beatPulse)
+                    }
+                } else {
+                    if let bonus = upcomingBonus, bonus == .deadly {
+                        ZStack {
+                            Circle()
+                                .fill(Color.black)
+                                .frame(width: 40, height: 40)
+                            Text("☠︎")
+                                .font(.system(size: 20, weight: .heavy))
+                                .foregroundStyle(.white)
+                        }
+                        .shadow(radius: 2)
+                    } else {
+                        Text(nameKey(for: target))
+                            .font(.caption2).bold()
+                            .foregroundStyle(.black.opacity(0.8))
+                    }
+                }
+            }
+            .modifier(ShakeEffect(trigger: shakeTrigger))
+            .padding(.vertical, 2)
+            .offset(y: targetYOffset)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .onTapGesture {
+                if giftAvailable {
+                    onCollectGift()
+                }
+            }
+
+            // Color grid anchored near the bottom
+            VStack {
+                Spacer()
+                let bottomRowColors = colors.enumerated()
+                    .filter { $0.offset % 2 == 0 }
+                    .map { $0.element }
+                let topRowColors = colors.enumerated()
+                    .filter { $0.offset % 2 == 1 }
+                    .map { $0.element }
+                let upperRow = bottomRowColors.count >= topRowColors.count ? bottomRowColors : topRowColors
+                let lowerRow = bottomRowColors.count >= topRowColors.count ? topRowColors : bottomRowColors
+                let needsCenteredLowerRow = upperRow.count == lowerRow.count + 1
+
+                let isDeadlySkullActive = (!isPhone) && giftAvailable && upcomingBonus == .deadly
+
+                Grid(horizontalSpacing: 4, verticalSpacing: 4) {
+                    GridRow {
+                        ForEach(upperRow) { c in gridCell(c) }
+                    }
+                    GridRow {
+                        if needsCenteredLowerRow {
+                            gridCell(lowerRow.first)
+                            gridCell(nil)
+                            if lowerRow.count > 1 { gridCell(lowerRow[1]) }
+                        } else {
+                            ForEach(lowerRow) { c in gridCell(c) }
+                        }
+                    }
+                }
+                .allowsHitTesting(!isDeadlySkullActive)
+                .padding(.horizontal, 2)
+                .padding(.top, gridTopPad)
+                .padding(.bottom, gridBottomPad)
+                .scaleEffect(gridScale)
+                .offset(y: gridYOffset)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .allowsHitTesting(!showRecordsPanel)
+        // Center-left mute button overlay
+        VStack {
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .leading) {
+            Button(action: onToggleMute) {
+                Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 28, height: 28)
+                    .background(Circle().fill(.ultraThinMaterial))
+            }
+            .buttonStyle(.plain)
+            .padding(.leading, 4)
+        }
+        .padding(.vertical, 4)
+        .overlay(alignment: .trailing) {
+            if isPhone {
+                Button(action: {
+                    onOpenRecordsPanelSound()
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.6)) { avatarPulse = true }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) { avatarPulse = false }
+                    }
+                    recordsPanelMode = .manual
+                    showRecordsPanel = true
+                }) {
+                    AvatarDisplayView(avatarId: selectedAvatarId)
+                        .frame(width: 52, height: 52)
+                        .scaleEffect(avatarPulse ? 1.12 : 1.0)
+                        .background(
+                            Circle()
+                                .fill(Color.black.opacity(0.18))
+                                .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 1))
+                        )
+                        .clipShape(Circle())
+                        .shadow(color: .black.opacity(0.35), radius: 8, x: 0, y: 6)
+                }
+                .buttonStyle(.plain)
+                .padding(.trailing, 10)
+                .offset(y: targetYOffset)
+                .accessibilityIdentifier("recordsAvatarButton")
+                .zIndex(20)
+            } else {
+                AvatarDisplayView(avatarId: selectedAvatarId)
+                    .frame(width: 32, height: 32)
+                    .padding(.trailing, 4)
+            }
+        }
+        .overlay {
+            if showRecordsPanel {
+                Color.black.opacity(0.6)
+                    .ignoresSafeArea()
+                    .accessibilityIdentifier("recordsBackdrop")
+                    .onTapGesture {
+                        showRecordsPanel = false
+                        recordsPanelMode = .manual
+                    }
+            }
+        }
+        .overlay {
+            if showRecordsPanel {
+                BestScoresView(
+                    scores: bestScores,
+                    lastScore: lastGameScore,
+                    lastPlacement: lastGamePlacement,
+                    mode: recordsPanelMode,
+                    isNewBestScore: isNewBestScore,
+                    selectedAvatarId: selectedAvatarId,
+                    onReset: onResetBestScores,
+                    onSave: onSaveRecord,
+                    onDiscard: onDiscardRecord,
+                    onDismiss: {
+                        showRecordsPanel = false
+                        recordsPanelMode = .manual
+                    }
+                )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .transition(.opacity.combined(with: .scale))
+                    .zIndex(1)
+            }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if !isPhone {
+                Button(action: {
+                    if showRecordsPanel {
+                        showRecordsPanel = false
+                    } else {
+                        recordsPanelMode = .manual
+                        showRecordsPanel = true
+                    }
+                }) {
+                    Image(systemName: showRecordsPanel ? "eye.slash" : "eye")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(6)
+                        .background(Circle().fill(Color.black.opacity(0.35)))
+                }
+                .accessibilityIdentifier("recordsToggle")
+                .buttonStyle(.plain)
+                .padding(.trailing, 8)
+                .padding(.bottom, 12)
+                .zIndex(3)
+            }
+        }
+    }
+    #endif
+
+    private func hudPill(title: String, value: String, systemImage: String) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12, weight: .semibold))
+            VStack(spacing: 0) {
+                Text(title)
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.85))
+                Text(value)
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.ultraThinMaterial, in: Capsule())
+        .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
+    }
+
+    private func hudPillCompact(value: String, systemImage: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+                .font(.system(size: 12, weight: .semibold))
+            Text(value)
+                .font(.system(size: 13, weight: .bold))
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(.ultraThinMaterial, in: Capsule())
+        .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
+    }
 }
 
 private struct BestScoresView: View {
@@ -1894,15 +2476,18 @@ private struct BestScoresView: View {
     let lastPlacement: Int?
     let mode: ContentView.RecordsPanelMode
     let isNewBestScore: Bool
+    let selectedAvatarId: String
     let onReset: () -> Void
     let onSave: (Int) -> Void
     let onDiscard: () -> Void
     let onDismiss: () -> Void
     @State private var pulseScore: Bool = false
     @State private var dropScore: Bool = false
+    @Environment(\.horizontalSizeClass) private var hSize
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let isPhone = (hSize == .compact)
+        VStack(alignment: isPhone ? .center : .leading, spacing: 8) {
             HStack {
                 Image(systemName: "trophy.fill")
                     .font(.caption)
@@ -1921,13 +2506,18 @@ private struct BestScoresView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Reset records")
             }
+            if isPhone {
+                AvatarDisplayView(avatarId: selectedAvatarId)
+                    .frame(width: 64, height: 64)
+                    .shadow(color: .black.opacity(0.25), radius: 6, x: 0, y: 4)
+            }
             if mode == .endGame, lastPlacement == nil, let score = lastScore {
                 VStack(spacing: 6) {
                     Text("Your score")
-                        .font(.caption)
+                        .font(isPhone ? .headline : .caption)
                         .foregroundStyle(.white.opacity(0.8))
                     Text("\(score)")
-                        .font(.largeTitle).bold()
+                        .font(isPhone ? .system(size: 72, weight: .heavy) : .largeTitle.bold())
                         .foregroundStyle(.white)
                         .scaleEffect(pulseScore ? 1.22 : 0.90)
                         .animation(
@@ -1990,8 +2580,8 @@ private struct BestScoresView: View {
                                 .font(.headline).bold()
                                 .foregroundStyle(.white.opacity(0.9))
                                 .frame(width: 18, alignment: .leading)
-                            AvatarIconView(avatarId: entry.avatarId)
-                                .frame(width: 18, height: 18)
+                            recentScoreAvatarIcon(avatarId: entry.avatarId)
+                                .frame(width: 22, height: 22)
                             Text(AvatarCatalog.name(for: entry.avatarId))
                                 .font(.caption2)
                                 .foregroundStyle(.white.opacity(0.9))
@@ -2008,7 +2598,9 @@ private struct BestScoresView: View {
                     }
                 }
             }
-            Spacer()
+            if !isPhone {
+                Spacer()
+            }
         }
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -2019,7 +2611,17 @@ private struct BestScoresView: View {
         }
         .accessibilityIdentifier("recordsPanel")
         .padding(16)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: isPhone ? .center : .topLeading)
+    }
+
+    @ViewBuilder
+    private func recentScoreAvatarIcon(avatarId: String) -> some View {
+        if avatarId == "avatar_robot_1" {
+            AvatarIconView(avatarId: avatarId)
+                .scaleEffect(0.40)
+        } else {
+            AvatarIconView(avatarId: avatarId)
+        }
     }
 }
 
@@ -2073,15 +2675,26 @@ private struct GameOverView: View {
     let playAgainKey: LocalizedStringKey
     let scoreKey: LocalizedStringKey
     let levelKey: LocalizedStringKey
+    let selectedAvatarId: String
     let lastScore: Int?
     let lastPlacement: Int?
     let isNewBestScore: Bool
     let onShowSavePrompt: () -> Void
 
     var body: some View {
+        #if os(iOS)
+        let isPhone = true
+        #else
+        let isPhone = false
+        #endif
         VStack(spacing: 8) {
+            if isPhone {
+                AvatarDisplayView(avatarId: selectedAvatarId)
+                    .frame(width: 64, height: 64)
+                    .shadow(color: .black.opacity(0.25), radius: 6, x: 0, y: 4)
+            }
             Text(gameOverKey)
-                .font(.title3).bold()
+                .font(isPhone ? .title : .title3).bold()
             HStack(spacing: 6) {
                 HStack(spacing: 2) {
                     Text(scoreKey)
@@ -2093,12 +2706,13 @@ private struct GameOverView: View {
                     Text("\(level)")
                 }
             }
-            .font(.footnote)
+            .font(isPhone ? .callout : .footnote)
             .opacity(0.8)
             Button(action: restartAction) {
                 Text(playAgainKey)
             }
             .buttonStyle(.borderedProminent)
+            .font(isPhone ? .headline : .body)
             if lastScore != nil && isNewBestScore {
                 Button(action: onShowSavePrompt) {
                     HStack(spacing: 6) {
@@ -2154,35 +2768,80 @@ private struct AvatarCatalog {
         let id: String
         let systemName: String?
         let assetName: String?
-        let isCustom: Bool
         let displayName: String
     }
 
-    static let defaultId: String = "avatar_pet_1"
-    static let customImageKey: String = "customAvatarData"
+    static let defaultId: String = "avatar_robot_1"
+    static let giftUnlockKey: String = "giftUnlockedAvatarIds"
+    static let freeIds: Set<String> = ["avatar_robot_1", "avatar_robot_cat", "avatar_robot_dog"]
 
     static let items: [Item] = [
-        Item(id: "avatar_pet_1", systemName: nil, assetName: "pet_1", isCustom: false, displayName: "Kity"),
-        Item(id: "avatar_pet_2", systemName: nil, assetName: "pet_2", isCustom: false, displayName: "Doggy"),
-        Item(id: "avatar_pet_3", systemName: nil, assetName: "pet_3", isCustom: false, displayName: "Jumper"),
-        Item(id: "avatar_custom_1", systemName: nil, assetName: nil, isCustom: true, displayName: "Custom")
+        Item(id: "avatar_robot_1", systemName: nil, assetName: nil, displayName: "Robot"),
+        Item(id: "avatar_robot_cat", systemName: nil, assetName: nil, displayName: "RoboCat"),
+        Item(id: "avatar_robot_dog", systemName: nil, assetName: nil, displayName: "RoboDog"),
+        Item(id: "avatar_robot_bunny", systemName: nil, assetName: nil, displayName: "RoboBunny"),
+        Item(id: "avatar_robot_monkey", systemName: nil, assetName: nil, displayName: "RoboMonkey"),
+        Item(id: "avatar_robot_owl", systemName: nil, assetName: nil, displayName: "RoboOwl"),
+        Item(id: "avatar_robot_mouse", systemName: nil, assetName: nil, displayName: "RoboMouse"),
+        Item(id: "avatar_robot_fox", systemName: nil, assetName: nil, displayName: "RoboFox"),
+        Item(id: "avatar_robot_bear", systemName: nil, assetName: nil, displayName: "RoboBear"),
+        Item(id: "avatar_robot_panda", systemName: nil, assetName: nil, displayName: "RoboPanda"),
+        Item(id: "avatar_robot_frog", systemName: nil, assetName: nil, displayName: "RoboFrog"),
+        Item(id: "avatar_pet_1", systemName: nil, assetName: "pet_1", displayName: "Jumper"),
+        Item(id: "avatar_pet_2", systemName: nil, assetName: "pet_2", displayName: "Doggy"),
+        Item(id: "avatar_pet_3", systemName: nil, assetName: "pet_3", displayName: "Kitty")
     ]
 
-    static let carouselItems: [Item] = [
-        items[0], items[1], items[2]
-    ]
+    static func robotPetKind(for avatarId: String) -> RobotPetIconView.Kind? {
+        switch avatarId {
+        case "avatar_robot_cat": return .cat
+        case "avatar_robot_dog": return .dog
+        case "avatar_robot_bunny": return .rabbit
+        case "avatar_robot_monkey": return .monkey
+        case "avatar_robot_owl": return .owl
+        case "avatar_robot_mouse": return .mouse
+        case "avatar_robot_fox": return .fox
+        case "avatar_robot_bear": return .bear
+        case "avatar_robot_panda": return .panda
+        case "avatar_robot_frog": return .frog
+        default: return nil
+        }
+    }
+
+    static func unlockedItems(premiumUnlocked: Bool) -> [Item] {
+        let unlocked = unlockedIds(premiumUnlocked: premiumUnlocked)
+        return items.filter { unlocked.contains($0.id) }
+    }
+
+    static func lockedItems(premiumUnlocked: Bool) -> [Item] {
+        let unlocked = unlockedIds(premiumUnlocked: premiumUnlocked)
+        return items.filter { !unlocked.contains($0.id) }
+    }
+
+    static func unlockedIds(premiumUnlocked: Bool) -> Set<String> {
+        if premiumUnlocked { return Set(items.map { $0.id }) }
+        return freeIds.union(loadGiftUnlockedIds())
+    }
 
     static func name(for avatarId: String) -> String {
         items.first(where: { $0.id == avatarId })?.displayName ?? "Unknown"
     }
 
-    static func loadCustomImage() -> UIImage? {
-        guard let data = UserDefaults.standard.data(forKey: customImageKey),
-              !data.isEmpty,
-              let image = UIImage(data: data) else {
-            return nil
-        }
-        return image
+    static func loadGiftUnlockedIds() -> Set<String> {
+        let list = UserDefaults.standard.stringArray(forKey: giftUnlockKey) ?? []
+        return Set(list)
+    }
+
+    static func recordGiftUnlock(id: String) {
+        var set = loadGiftUnlockedIds()
+        set.insert(id)
+        UserDefaults.standard.set(Array(set), forKey: giftUnlockKey)
+    }
+
+    static func randomLockedAvatarId(premiumUnlocked: Bool) -> String? {
+        let locked = lockedItems(premiumUnlocked: premiumUnlocked)
+        guard !locked.isEmpty else { return nil }
+        return locked.randomElement()?.id
     }
 }
 
@@ -2191,7 +2850,7 @@ private struct AvatarCarousel: View {
     let premiumUnlocked: Bool
     let onRequestPremium: () -> Void
     var showLabel: Bool = true
-    @State private var showCustomPicker: Bool = false
+    @State private var showAvatarStore: Bool = false
 
     var body: some View {
         VStack(spacing: 6) {
@@ -2202,21 +2861,19 @@ private struct AvatarCarousel: View {
             }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    ForEach(AvatarCatalog.carouselItems) { item in
+                    ForEach(AvatarCatalog.unlockedItems(premiumUnlocked: premiumUnlocked)) { item in
                         AvatarCell(
                             item: item,
                             isSelected: selectedAvatarId == item.id
                         )
                         .onTapGesture { selectedAvatarId = item.id }
                     }
+#if os(watchOS)
                     AvatarAddCell(isSelected: false)
                         .onTapGesture {
-                            if premiumUnlocked {
-                                showCustomPicker = true
-                            } else {
-                                onRequestPremium()
-                            }
+                            showAvatarStore = true
                         }
+#endif
                 }
                 .padding(.horizontal, 2)
             }
@@ -2233,11 +2890,15 @@ private struct AvatarCarousel: View {
                 )
         )
         .zIndex(2)
-        .sheet(isPresented: $showCustomPicker) {
-            CustomAvatarPicker(
-                selectedAvatarId: $selectedAvatarId
+#if os(watchOS)
+        .sheet(isPresented: $showAvatarStore) {
+            AvatarStoreSheet(
+                premiumUnlocked: premiumUnlocked,
+                lockedItems: AvatarCatalog.lockedItems(premiumUnlocked: premiumUnlocked),
+                onRequestPremium: onRequestPremium
             )
         }
+#endif
     }
 }
 
@@ -2248,61 +2909,54 @@ private struct AvatarSelectView: View {
     let onBack: () -> Void
     let onRequestPremium: () -> Void
 
-    private struct PetItem: Identifiable {
-        let id: String
-        let assetName: String
-        let displayName: String
-        let isCustom: Bool
-    }
-
-    private let pets: [PetItem] = [
-        PetItem(id: "avatar_pet_1", assetName: "pet_1", displayName: "Jumper", isCustom: false),
-        PetItem(id: "avatar_pet_2", assetName: "pet_2", displayName: "Doggy", isCustom: false),
-        PetItem(id: "avatar_pet_3", assetName: "pet_3", displayName: "Kitty", isCustom: false)
-    ]
-    private let customId: String = "avatar_custom_1"
-    private let customName: String = "Custom"
-
     @State private var index: Int = 0
-    #if canImport(PhotosUI)
-    @State private var selectedPhotoItem: PhotosPickerItem? = nil
-    #endif
-    @State private var customImage: UIImage? = nil
-    @State private var errorText: String? = nil
-    @State private var showUnderConstruction: Bool = false
+    @State private var showAvatarStore: Bool = false
 
     var body: some View {
+        #if os(iOS)
+        let isPhone = true
+        #else
+        let isPhone = false
+        #endif
         VStack(spacing: 10) {
             Text("Select avatar")
-                .font(.caption)
+                .font(isPhone ? .headline : .caption)
                 .foregroundStyle(.white.opacity(0.85))
+
+            let availableItems = AvatarCatalog.unlockedItems(premiumUnlocked: premiumUnlocked)
+            #if os(watchOS)
+            let avatarSize: CGFloat = 90
+            #else
+            let avatarSize: CGFloat = 140
+            #endif
 
             HStack(spacing: 10) {
                 Button(action: { move(-1) }) {
                     Image(systemName: "chevron.left")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: isPhone ? 16 : 12, weight: .bold))
                         .foregroundStyle(.white)
-                        .frame(width: 26, height: 26)
+                        .frame(width: isPhone ? 32 : 26, height: isPhone ? 32 : 26)
                         .background(Circle().fill(.ultraThinMaterial))
                 }
                 .buttonStyle(.plain)
 
                 Group {
-                    if selectedAvatarId == customId, let customImage {
-                        Image(uiImage: customImage)
-                            .resizable()
-                            .renderingMode(.original)
-                            .interpolation(.high)
-                            .scaledToFit()
+                    if selectedAvatarId == "avatar_robot_1" {
+                        RobotAvatarView(style: .bot)
+                            .scaleEffect(isPhone ? 1.45 : 1.0)
+                    } else if let kind = AvatarCatalog.robotPetKind(for: selectedAvatarId) {
+                        RobotPetIconView(kind: kind, background: .clear)
+                    } else if selectedAvatarId.hasPrefix("avatar_pet_") {
+                        AvatarSpriteView(avatarId: selectedAvatarId)
                     } else {
-                        Image(pets[index].assetName)
+                        Image(systemName: "pawprint.fill")
                             .resizable()
                             .renderingMode(.original)
                             .interpolation(.high)
                             .scaledToFit()
                     }
                 }
-                .frame(width: 80, height: 80)
+                .frame(width: avatarSize, height: avatarSize)
                 .contentShape(Rectangle())
                 .gesture(
                     DragGesture(minimumDistance: 12)
@@ -2317,104 +2971,62 @@ private struct AvatarSelectView: View {
 
                 Button(action: { move(1) }) {
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: isPhone ? 16 : 12, weight: .bold))
                         .foregroundStyle(.white)
-                        .frame(width: 26, height: 26)
+                        .frame(width: isPhone ? 32 : 26, height: isPhone ? 32 : 26)
                         .background(Circle().fill(.ultraThinMaterial))
                 }
                 .buttonStyle(.plain)
             }
 
-            Text(currentDisplayName())
-                .font(.caption2)
+            Text(currentDisplayName(items: availableItems))
+                .font(isPhone ? .callout : .caption2)
                 .foregroundStyle(.white.opacity(0.85))
 
-            #if os(iOS)
-            PhotosPicker(
-                selection: $selectedPhotoItem,
-                matching: .images
-            ) {
+#if os(watchOS)
+            Button(action: { showAvatarStore = true }) {
                 Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 14, weight: .bold))
+                    .font(.system(size: isPhone ? 18 : 14, weight: .bold))
                     .foregroundStyle(.white)
-                    .frame(width: 26, height: 26)
+                    .frame(width: isPhone ? 32 : 26, height: isPhone ? 32 : 26)
                     .background(Circle().fill(.ultraThinMaterial))
             }
             .buttonStyle(.plain)
-            .onTapGesture {
-                if !premiumUnlocked {
-                    onRequestPremium()
-                }
-            }
-            .onChange(of: selectedPhotoItem) { _, newItem in
-                guard let newItem else { return }
-                if !premiumUnlocked {
-                    selectedPhotoItem = nil
-                    return
-                }
-                Task {
-                    if let data = try? await newItem.loadTransferable(type: Data.self),
-                       let image = UIImage(data: data) {
-                        if let resized = resizedTo64(image) {
-                            customImage = resized
-                            if let resizedData = resized.pngData() {
-                                UserDefaults.standard.set(resizedData, forKey: AvatarCatalog.customImageKey)
-                            }
-                            selectedAvatarId = customId
-                            errorText = nil
-                        } else {
-                            errorText = "Image must be 64x64."
-                        }
-                    } else {
-                        errorText = "Image must be 64x64."
-                    }
-                }
-            }
-            #else
-            Button(action: { showUnderConstruction = true }) {
-                Image(systemName: "plus.circle.fill")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 26, height: 26)
-                    .background(Circle().fill(.ultraThinMaterial))
-            }
-            .buttonStyle(.plain)
-            .onTapGesture {
-                if !premiumUnlocked {
-                    onRequestPremium()
-                }
-            }
+            #if os(watchOS)
+            .offset(y: -8)
             #endif
+#endif
 
             Button(action: onStart) {
                 Image(systemName: "play.fill")
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.system(size: isPhone ? 20 : 16, weight: .bold))
                     .foregroundStyle(.black)
-                    .frame(width: 44, height: 44)
+                    .frame(width: isPhone ? 54 : 44, height: isPhone ? 54 : 44)
                     .background(.white)
                     .clipShape(Circle())
                     .shadow(color: .black.opacity(0.25), radius: 6, x: 0, y: 4)
             }
             .buttonStyle(.plain)
-
-            if let errorText {
-                Text(errorText)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.85))
-            }
+            #if os(watchOS)
+            .offset(y: -14)
+            #endif
         }
         .padding(12)
-        .alert("Under construction", isPresented: $showUnderConstruction) {
-            Button("Close", role: .cancel) { }
-        } message: {
-            Text("Custom avatar upload will be available later.")
+#if os(watchOS)
+        .sheet(isPresented: $showAvatarStore) {
+            AvatarStoreSheet(
+                premiumUnlocked: premiumUnlocked,
+                lockedItems: AvatarCatalog.lockedItems(premiumUnlocked: premiumUnlocked),
+                onRequestPremium: onRequestPremium
+            )
         }
+#endif
         .overlay(alignment: .topLeading) {
             Button(action: onBack) {
                 Image(systemName: "chevron.left")
-                    .font(.system(size: 12, weight: .bold))
+                    .font(.system(size: isPhone ? 14 : 12, weight: .bold))
                     .foregroundStyle(.white)
-                    .frame(width: 28, height: 28)
+                    .frame(width: isPhone ? 32 : 28, height: isPhone ? 32 : 28)
                     .background(Circle().fill(.ultraThinMaterial))
             }
             .buttonStyle(.plain)
@@ -2422,43 +3034,201 @@ private struct AvatarSelectView: View {
             .padding(.top, 6)
         }
         .onAppear {
-            if let idx = pets.firstIndex(where: { $0.id == selectedAvatarId }) {
+            let items = AvatarCatalog.unlockedItems(premiumUnlocked: premiumUnlocked)
+            if let idx = items.firstIndex(where: { $0.id == selectedAvatarId }) {
                 index = idx
-            } else if selectedAvatarId != customId {
+            } else {
                 index = 0
-                selectedAvatarId = pets[0].id
+                selectedAvatarId = items.first?.id ?? AvatarCatalog.defaultId
             }
-            customImage = AvatarCatalog.loadCustomImage()
         }
     }
 
     private func move(_ delta: Int) {
-        let count = pets.count
+        let items = AvatarCatalog.unlockedItems(premiumUnlocked: premiumUnlocked)
+        let count = max(1, items.count)
         index = (index + delta + count) % count
-        selectedAvatarId = pets[index].id
-    }
-
-    private func currentDisplayName() -> String {
-        if selectedAvatarId == customId { return customName }
-        return pets[index].displayName
-    }
-
-    #if os(iOS)
-    private func resizedTo64(_ image: UIImage) -> UIImage? {
-        let target = CGSize(width: 64, height: 64)
-        if image.size.width == target.width, image.size.height == target.height {
-            return image
-        }
-        let renderer = UIGraphicsImageRenderer(size: target)
-        return renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: target))
+        if let id = items[safe: index]?.id {
+            selectedAvatarId = id
         }
     }
-    #else
-    private func resizedTo64(_ image: UIImage) -> UIImage? {
-        return nil
+
+    private func currentDisplayName(items: [AvatarCatalog.Item]) -> String {
+        if let match = items.first(where: { $0.id == selectedAvatarId }) {
+            return match.displayName
+        }
+        return AvatarCatalog.name(for: selectedAvatarId)
     }
-    #endif
+}
+
+private struct AvatarStoreSheet: View {
+    let premiumUnlocked: Bool
+    let lockedItems: [AvatarCatalog.Item]
+    let onRequestPremium: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var index: Int = 0
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Text("Avatar Shop")
+                .font(.headline)
+            if lockedItems.isEmpty {
+                Text("All avatars unlocked")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            } else {
+                HStack(spacing: 10) {
+                    Button(action: { move(-1) }) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 26, height: 26)
+                            .background(Circle().fill(.ultraThinMaterial))
+                    }
+                    .buttonStyle(.plain)
+
+                    AvatarDisplayView(avatarId: lockedItems[index].id)
+                        .frame(width: 64, height: 64)
+
+                    Button(action: { move(1) }) {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 26, height: 26)
+                            .background(Circle().fill(.ultraThinMaterial))
+                    }
+                    .buttonStyle(.plain)
+                }
+                Text(lockedItems[index].displayName)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.85))
+            }
+
+            if !premiumUnlocked {
+                Button("Get Premium") {
+                    onRequestPremium()
+                    dismiss()
+                }
+                .buttonStyle(.borderedProminent)
+            } else {
+                Button("Close") { dismiss() }
+                    .buttonStyle(.bordered)
+            }
+        }
+        .padding()
+    }
+
+    private func move(_ delta: Int) {
+        let count = max(1, lockedItems.count)
+        index = (index + delta + count) % count
+    }
+}
+
+private struct AvatarUnlockOverlayView: View {
+    let avatarId: String
+    let onClose: () -> Void
+    @State private var pop: Bool = false
+    @State private var spin: Bool = false
+    @State private var sparkle: Bool = false
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.6).ignoresSafeArea()
+            VStack(spacing: 10) {
+                Text("New Avatar Unlocked!")
+                    .font(.headline)
+                ZStack {
+                    Circle()
+                        .fill(Color.white.opacity(0.08))
+                        .frame(width: 96, height: 96)
+                        .overlay(
+                            Circle().stroke(Color.white.opacity(0.2), lineWidth: 1)
+                        )
+                    AvatarDisplayView(avatarId: avatarId)
+                        .frame(width: 72, height: 72)
+                        .scaleEffect(pop ? 1.0 : 0.6)
+                        .rotationEffect(.degrees(spin ? 3 : -3))
+                    ForEach(0..<8, id: \.self) { i in
+                        Circle()
+                            .fill(Color.white.opacity(0.6))
+                            .frame(width: 4, height: 4)
+                            .offset(x: 0, y: sparkle ? -54 : -30)
+                            .rotationEffect(.degrees(Double(i) * 45))
+                            .opacity(sparkle ? 1 : 0)
+                    }
+                }
+                Button("OK") { onClose() }
+                    .buttonStyle(.borderedProminent)
+            }
+            .padding(14)
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(0.2), lineWidth: 1)
+            )
+            .padding(.horizontal, 12)
+        }
+        .onAppear {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.55)) { pop = true }
+            withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { spin = true }
+            withAnimation(.easeOut(duration: 0.5)) { sparkle = true }
+        }
+    }
+}
+
+private struct TrackUnlockOverlayView: View {
+    let trackName: String
+    let onClose: () -> Void
+    @State private var pop: Bool = false
+    @State private var sparkle: Bool = false
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.6).ignoresSafeArea()
+            VStack(spacing: 10) {
+                Text("New Track Unlocked!")
+                    .font(.headline)
+                ZStack {
+                    Circle()
+                        .fill(Color.white.opacity(0.08))
+                        .frame(width: 96, height: 96)
+                        .overlay(
+                            Circle().stroke(Color.white.opacity(0.2), lineWidth: 1)
+                        )
+                    Image(systemName: "music.note")
+                        .font(.system(size: 32, weight: .bold))
+                        .foregroundStyle(.white)
+                        .scaleEffect(pop ? 1.0 : 0.6)
+                    ForEach(0..<8, id: \.self) { i in
+                        Circle()
+                            .fill(Color.white.opacity(0.6))
+                            .frame(width: 4, height: 4)
+                            .offset(x: 0, y: sparkle ? -54 : -30)
+                            .rotationEffect(.degrees(Double(i) * 45))
+                            .opacity(sparkle ? 1 : 0)
+                    }
+                }
+                Text(trackName)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.9))
+                Button("OK") { onClose() }
+                    .buttonStyle(.borderedProminent)
+            }
+            .padding(14)
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.white.opacity(0.2), lineWidth: 1)
+            )
+            .padding(.horizontal, 12)
+        }
+        .onAppear {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.55)) { pop = true }
+            withAnimation(.easeOut(duration: 0.5)) { sparkle = true }
+        }
+    }
 }
 
 private struct AvatarCell: View {
@@ -2504,42 +3274,6 @@ private struct AvatarAddCell: View {
     }
 }
 
-private struct CustomAvatarPicker: View {
-    @Binding var selectedAvatarId: String
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        VStack(spacing: 12) {
-            Text("Wybierz ikone (Premium)")
-                .font(.headline)
-            HStack(spacing: 12) {
-                Button {
-                    selectedAvatarId = "avatar_custom_1"
-                    dismiss()
-                } label: {
-                    AvatarIconView(avatarId: "avatar_custom_1")
-                        .frame(width: 48, height: 48)
-                }
-                .buttonStyle(.bordered)
-
-                Button {
-                    selectedAvatarId = "avatar_custom_2"
-                    dismiss()
-                } label: {
-                    AvatarIconView(avatarId: "avatar_custom_2")
-                        .frame(width: 48, height: 48)
-                }
-                .buttonStyle(.bordered)
-            }
-            Text("Dodaj wlasna ikonke w Assets jako custom_pet_1 / custom_pet_2")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-            Spacer()
-        }
-        .padding()
-    }
-}
-
 private struct AvatarIconView: View {
     let avatarId: String
 
@@ -2554,12 +3288,12 @@ private struct AvatarIconView: View {
                 .interpolation(.none)
                 .antialiased(false)
                 .scaledToFit()
-        } else if let item, item.isCustom, let custom = AvatarCatalog.loadCustomImage() {
-            Image(uiImage: custom)
-                .resizable()
-                .renderingMode(.original)
-                .interpolation(.high)
-                .scaledToFit()
+        } else if let item, item.id == "avatar_robot_1" {
+            RobotAvatarView(style: .bot)
+        } else if let item, let kind = AvatarCatalog.robotPetKind(for: item.id) {
+            RobotPetIconView(kind: kind, background: .clear)
+        } else if let item, item.id.hasPrefix("avatar_pet_") {
+            AvatarSpriteView(avatarId: item.id)
         } else if let item, let assetName = item.assetName {
             Image(assetName)
                 .resizable()
@@ -2576,26 +3310,100 @@ private struct AvatarIconView: View {
     }
 }
 
+private struct AvatarDisplayView: View {
+    let avatarId: String
+    var animated: Bool = true
+
+    var body: some View {
+        if avatarId == "avatar_robot_1" {
+            RobotAvatarView(style: .bot, animated: animated)
+                .scaleEffect(0.88)
+        } else if let kind = AvatarCatalog.robotPetKind(for: avatarId) {
+            RobotPetIconView(kind: kind, background: .clear, animated: animated)
+        } else if avatarId.hasPrefix("avatar_pet_") {
+            AvatarSpriteView(avatarId: avatarId)
+                .transaction { txn in
+                    txn.animation = nil
+                }
+                .animation(nil, value: avatarId)
+                .transaction { txn in
+                    txn.disablesAnimations = true
+                }
+        } else {
+            Image(systemName: "pawprint.fill")
+                .resizable()
+                .interpolation(.none)
+                .antialiased(false)
+                .scaledToFit()
+        }
+    }
+}
+
+private struct AvatarSpriteView: View {
+    let avatarId: String
+
+    var body: some View {
+        Group {
+            switch avatarId {
+            case "avatar_pet_1":
+                SpriteSheetAnimationView(
+                    sheetName: "bunny_idle_spritesheet",
+                    jsonName: "bunny_idle_spritesheet",
+                    subdirectory: "SpriteSheets/bunny"
+                )
+            case "avatar_pet_2":
+                SpriteSheetAnimationView(
+                    sheetName: "dog_idle_spritesheet",
+                    jsonName: "dog_idle_spritesheet",
+                    subdirectory: "SpriteSheets/dog"
+                )
+            case "avatar_pet_3":
+                SpriteSheetAnimationView(
+                    sheetName: "cat_idle_spritesheet",
+                    jsonName: "cat_idle_spritesheet",
+                    subdirectory: "SpriteSheets/cat"
+                )
+            default:
+                Color.clear
+            }
+        }
+        .rotationEffect(.degrees(0))
+        .transaction { txn in
+            txn.animation = nil
+        }
+        .animation(nil, value: avatarId)
+    }
+}
+
 // MARK: - Track Banner View
 private struct TrackBannerView: View {
     let text: String
 
     var body: some View {
+        #if os(iOS)
+        let isPhone = true
+        #else
+        let isPhone = false
+        #endif
+        let bannerHeight: CGFloat = isPhone ? 68 : 32
+        let font: Font = isPhone ? .headline : .subheadline
         GeometryReader { _ in
             VStack {
                 ZStack {
                     Capsule(style: .continuous)
                         .fill(.ultraThinMaterial)
-                        .frame(height: 28)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: bannerHeight)
                         .shadow(color: .black.opacity(0.2), radius: 4, x: 0, y: 2)
 
                     // Use the same marquee behavior as on the main screen
-                    MarqueeText(text: text)
-                        .frame(height: 22)
-                        .padding(.horizontal, 10)
+                    MarqueeText(text: text, font: font, forceMarquee: true)
+                        .frame(height: bannerHeight)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 18)
                 }
-                .padding(.horizontal, 8)
-                .padding(.top, 6)
+                .padding(.horizontal, 12)
+                .padding(.top, isPhone ? 0 : 6)
 
                 Spacer()
             }
@@ -2607,30 +3415,53 @@ private struct TrackBannerView: View {
 // MARK: - MarqueeText (compact scrolling label)
 private struct MarqueeText: View {
     let text: String
+    var font: Font = .caption2
+    var forceMarquee: Bool = false
     @State private var animate: Bool = false
     @State private var textWidth: CGFloat = 0
+    @State private var containerWidth: CGFloat = 0
 
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width
             ZStack {
-                HStack(spacing: 30) {
-                    marqueeText
-                    marqueeText
-                }
-                .offset(x: animate ? -(textWidth + 30) : 0)
-                .animation(.linear(duration: max(3.0, Double(textWidth + 30) / 60.0)).repeatForever(autoreverses: false), value: animate)
+        let needsMarquee = forceMarquee || textWidth > w
+        if !needsMarquee {
+            marqueeText
+                .frame(maxWidth: .infinity, alignment: .center)
+        } else if textWidth <= w {
+            marqueeText
+                .offset(x: animate ? -(textWidth + 20) : w)
+                .animation(
+                    .linear(duration: max(3.0, Double(textWidth + 20 + w) / 60.0))
+                        .repeatForever(autoreverses: false),
+                    value: animate
+                )
+        } else {
+            HStack(spacing: 30) {
+                marqueeText
+                marqueeText
+            }
+            .offset(x: animate ? -(textWidth + 30) : w)
+            .animation(.linear(duration: max(3.0, Double(textWidth + 30) / 60.0)).repeatForever(autoreverses: false), value: animate)
+        }
             }
             .onAppear {
-                DispatchQueue.main.async {
-                    animate = true
-                }
+                containerWidth = w
+                startMarqueeIfNeeded(containerWidth: w)
+            }
+            .onChange(of: geo.size.width) { _, new in
+                containerWidth = new
+                startMarqueeIfNeeded(containerWidth: new)
             }
             .onChange(of: text) { _, _ in
                 animate = false
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                    animate = true
+                    startMarqueeIfNeeded(containerWidth: w)
                 }
+            }
+            .onChange(of: textWidth) { _, _ in
+                startMarqueeIfNeeded(containerWidth: containerWidth)
             }
         }
         .clipped()
@@ -2638,10 +3469,11 @@ private struct MarqueeText: View {
 
     private var marqueeText: some View {
         Text(text)
-            .font(.caption2).bold()
+            .font(font.weight(.semibold))
             .foregroundStyle(.white)
             .lineLimit(1)
             .fixedSize()
+            .frame(maxHeight: .infinity, alignment: .center)
             .background(
                 GeometryReader { proxy in
                     Color.clear
@@ -2649,6 +3481,14 @@ private struct MarqueeText: View {
                         .onChange(of: proxy.size.width) { _, new in textWidth = new }
                 }
             )
+    }
+
+    private func startMarqueeIfNeeded(containerWidth: CGFloat) {
+        guard forceMarquee || textWidth > containerWidth else {
+            animate = false
+            return
+        }
+        animate = true
     }
 }
 
@@ -2959,7 +3799,7 @@ private extension ContentView {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { countdownValue = 1 }
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
             countdownValue = 0
-            WKInterfaceDevice.current().play(.success)
+            playHaptic(.success)
         }
 
         // Start the game shortly after showing GO
@@ -3031,9 +3871,34 @@ private extension ContentView {
             levelCompletePulse = true
         }
 
+        if let pending = pendingAvatarUnlockId {
+            AvatarCatalog.recordGiftUnlock(id: pending)
+            unlockedAvatarId = pending
+            pendingAvatarUnlockId = nil
+            showAvatarUnlock = true
+        } else if let pendingTrack = pendingTrackUnlockName {
+            recordGiftUnlockedTrack(name: pendingTrack)
+            unlockedTrackName = pendingTrack
+            pendingTrackUnlockName = nil
+            showTrackUnlock = true
+            loadAvailableTracks()
+        }
+
+        previousLevelTrack = selectedTrack
+        if availableTracks.count > 1, let next = nextTrack(after: selectedTrack, in: availableTracks) {
+            selectedTrack = next
+        }
+
         isLevelCompletePresented = true
         playLevelCompleteFanfare()
-        WKInterfaceDevice.current().play(.success)
+        playHaptic(.success)
+    }
+
+    private func nextTrack(after current: String, in list: [String]) -> String? {
+        guard !list.isEmpty else { return nil }
+        guard let idx = list.firstIndex(of: current) else { return list.first }
+        let next = (idx + 1) % list.count
+        return list[next]
     }
 
     func beginNextLevelFromOverlay() {
@@ -3087,7 +3952,7 @@ private extension ContentView {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { countdownValue = 1 }
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
             countdownValue = 0
-            WKInterfaceDevice.current().play(.success)
+            playHaptic(.success)
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.65) {
@@ -3122,14 +3987,6 @@ private extension ContentView {
         lastBeatDate = Date()
         timeRemaining = beatInterval
         if difficulty.timeLimitSeconds != nil { resetLevelTimer() }
-
-        if !premiumUnlocked && !allowOneFreeCustomTrack {
-            if let idx = freeTracks.firstIndex(of: selectedTrack) {
-                selectedTrack = freeTracks[(idx + 1) % freeTracks.count]
-            } else {
-                selectedTrack = freeTracks.first ?? selectedTrack
-            }
-        }
 
         stopAudio()
         if !isMuted { startAudioIfAvailable() }
@@ -3203,45 +4060,19 @@ private extension ContentView {
         if isCountingDown { return }
         if isLevelCompletePresented { return }
         if showRecordsPanel { return }
+        let now = Date().timeIntervalSinceReferenceDate
+        if now - lastTapTimestamp < 0.12 { return }
+        lastTapTimestamp = now
         // Handle gift bonus tap only on the gift color (locked when spawned)
         if giftAvailable && color == currentTarget {
-            if upcomingBonus == .deadly {
-                // Deadly gift ends the game
-                giftAvailable = false
-                upcomingBonus = nil
-                deadlyGiftActive = false
-                showBonusEffect = true // flash
-                WKInterfaceDevice.current().play(.failure)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { showBonusEffect = false }
-                endGame()
-                return
-            }
-            let roll = Double.random(in: 0...1)
-            if roll < 0.30 { // ~30% chance deadly gift
-                upcomingBonus = .deadly
-                deadlyGiftActive = true
-            } else if roll < 0.50 { upcomingBonus = .freeTrack }
-            else if roll < 0.70 { upcomingBonus = .invincibility }
-            else if roll < 0.85 { upcomingBonus = .slowBackground }
-            else { upcomingBonus = .addTime }
-            print("[Bonus] Gift collected: \(String(describing: pendingBonus))")
-            applyPendingBonus()
-            giftAvailable = false
-            upcomingBonus = nil
-            
-            // Show bigger bonus effect with special gift open sound
-            showBonusEffect = true
-            playGiftOpen()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { showBonusEffect = false }
-            
-            playSuccess()
+            collectGift()
             return
         }
         if color == currentTarget {
             correctStreak += 1
             let points = bonusPointsByColor[color] ?? 1
             score += points
-            WKInterfaceDevice.current().play(.click)  // <--- Added subtle haptic here
+            playHaptic(.click)  // <--- Added subtle haptic here
 
             // Shuffle button positions after a correct hit to increase difficulty
             availableColors.shuffle()
@@ -3316,6 +4147,55 @@ private extension ContentView {
         }
     }
 
+    private func collectGift() {
+        if upcomingBonus == .deadly {
+            // Deadly gift ends the game
+            giftAvailable = false
+            upcomingBonus = nil
+            deadlyGiftActive = false
+            showBonusEffect = true // flash
+            playHaptic(.failure)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { showBonusEffect = false }
+            endGame()
+            return
+        }
+        let roll = Double.random(in: 0...1)
+        if roll < 0.30 { // ~30% chance deadly gift
+            upcomingBonus = .deadly
+            deadlyGiftActive = true
+        } else if roll < 0.50 { upcomingBonus = .freeTrack }
+        else if roll < 0.70 { upcomingBonus = .invincibility }
+        else if roll < 0.85 { upcomingBonus = .slowBackground }
+        else { upcomingBonus = .addTime }
+        pendingBonus = upcomingBonus
+        print("[Bonus] Gift collected: \(String(describing: pendingBonus))")
+        applyPendingBonus()
+        giftAvailable = false
+        upcomingBonus = nil
+
+        if !premiumUnlocked, pendingAvatarUnlockId == nil, pendingTrackUnlockName == nil {
+            let avatarUnlock = AvatarCatalog.randomLockedAvatarId(premiumUnlocked: premiumUnlocked)
+            let trackUnlock = randomLockedTrackName()
+            if let avatarUnlock, let trackUnlock {
+                if Bool.random() {
+                    pendingAvatarUnlockId = avatarUnlock
+                } else {
+                    pendingTrackUnlockName = trackUnlock
+                }
+            } else if let avatarUnlock {
+                pendingAvatarUnlockId = avatarUnlock
+            } else if let trackUnlock {
+                pendingTrackUnlockName = trackUnlock
+            }
+        }
+        
+        // Show bigger bonus effect with special gift open sound
+        showBonusEffect = true
+        playGiftOpen()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { showBonusEffect = false }
+        
+        playSuccess()
+    }
     func applyPendingBonus() {
         guard let bonus = pendingBonus else { return }
         switch bonus {
@@ -3367,6 +4247,7 @@ private extension ContentView {
     }
 
     func endGame() {
+        stopBeatLoop()
         gameState = .gameOver
         let current = bestScoresStore.load()
         let previousBest = current.map { $0.score }.max()
@@ -3399,6 +4280,11 @@ private extension ContentView {
 
 // MARK: - Audio (simple ticks)
 private extension ContentView {
+    private func bundleTrackURL(name: String, ext: String) -> URL? {
+        Bundle.main.url(forResource: name, withExtension: ext)
+            ?? Bundle.main.url(forResource: name, withExtension: ext, subdirectory: "SoundTracks")
+    }
+
     func startAudioIfAvailable() {
         stopAudio()
         print("[Audio] startAudioIfAvailable -> selected:", selectedTrack)
@@ -3406,7 +4292,13 @@ private extension ContentView {
         let exts = ["m4a", "mp3"]
         var url: URL? = nil
         for ext in exts {
-            if let u = Bundle.main.url(forResource: selectedTrack, withExtension: ext) { url = u; break }
+            if let u = bundleTrackURL(name: selectedTrack, ext: ext) { url = u; break }
+        }
+        if url == nil {
+            for ext in exts {
+                let u = importedTrackURL(named: selectedTrack, ext: ext)
+                if let u { url = u; break }
+            }
         }
         if url == nil { print("[Audio] URL not found in main bundle for:", selectedTrack) }
         if let url {
@@ -3425,6 +4317,11 @@ private extension ContentView {
         }
     }
 
+    private func importedTrackURL(named name: String, ext: String) -> URL? {
+        let urls = TrackStore.importedTrackURLs()
+        return urls.first { $0.deletingPathExtension().lastPathComponent == name && $0.pathExtension.lowercased() == ext }
+    }
+
     func stopAudio() {
         audioPlayer?.stop()
         audioPlayer = nil
@@ -3432,28 +4329,30 @@ private extension ContentView {
 
     func setupAudioSession() {
         do {
-            try AVAudioSession.sharedInstance().setCategory(.ambient, mode: .default, options: [.mixWithOthers])
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
+            try session.setActive(true)
         } catch {
             print("[Audio] Failed to set audio session:", error.localizedDescription)
         }
     }
 
     func playTick() {
-        WKInterfaceDevice.current().play(.click)
+        playHaptic(.click)
         #if canImport(AudioToolbox) && !os(watchOS)
         AudioServicesPlaySystemSound(1104)
         #endif
     }
 
     func playSuccess() {
-        WKInterfaceDevice.current().play(.success)
+        playHaptic(.success)
         #if canImport(AudioToolbox) && !os(watchOS)
         AudioServicesPlaySystemSound(1110)
         #endif
     }
 
     func playFail() {
-        WKInterfaceDevice.current().play(.failure)
+        playHaptic(.failure)
         #if canImport(AudioToolbox) && !os(watchOS)
         AudioServicesPlaySystemSound(1107)
         #endif
@@ -3468,10 +4367,10 @@ private extension ContentView {
                 p.prepareToPlay()
                 p.play()
             } catch {
-                WKInterfaceDevice.current().play(.click)
+                playHaptic(.click)
             }
         } else {
-            WKInterfaceDevice.current().play(.click)
+            playHaptic(.click)
         }
     }
 
@@ -3491,17 +4390,41 @@ private extension ContentView {
         }
         // Fallback: haptic sequence + background flash
         // Sequence: success -> click -> success, with quick flashes
-        WKInterfaceDevice.current().play(.success)
+        playHaptic(.success)
         showBonusEffect = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-            WKInterfaceDevice.current().play(.click)
+            playHaptic(.click)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-            WKInterfaceDevice.current().play(.success)
+            playHaptic(.success)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             showBonusEffect = false
         }
+    }
+
+    func playPanelOpen() {
+        guard !isMuted else { return }
+        if let url = Bundle.main.url(forResource: "panel_open", withExtension: "wav")
+            ?? Bundle.main.url(forResource: "panel_open", withExtension: "m4a")
+            ?? Bundle.main.url(forResource: "panel_open", withExtension: "mp3")
+            ?? Bundle.main.url(forResource: "gift_open", withExtension: "wav")
+            ?? Bundle.main.url(forResource: "gift_open", withExtension: "m4a")
+            ?? Bundle.main.url(forResource: "gift_open", withExtension: "mp3") {
+            do {
+                panelPlayer = try AVAudioPlayer(contentsOf: url)
+                panelPlayer?.volume = 0.7
+                panelPlayer?.prepareToPlay()
+                panelPlayer?.play()
+                return
+            } catch {
+                print("[Audio] Failed to play panel_open:", error.localizedDescription)
+            }
+        }
+        playHaptic(.click)
+        #if canImport(AudioToolbox) && !os(watchOS)
+        AudioServicesPlaySystemSound(1104)
+        #endif
     }
     
     func playSkullDismiss() {
@@ -3514,7 +4437,7 @@ private extension ContentView {
                 p.play()
             } catch { }
         } else {
-            WKInterfaceDevice.current().play(.click)
+            playHaptic(.click)
         }
     }
 
@@ -3522,7 +4445,8 @@ private extension ContentView {
         isEstimatingBPM = true
         Task {
             print("[BPM] Estimating BPM for:", selectedTrack)
-            if let url = Bundle.main.url(forResource: selectedTrack, withExtension: "m4a") ?? Bundle.main.url(forResource: selectedTrack, withExtension: "mp3") {
+            if let url = bundleTrackURL(name: selectedTrack, ext: "m4a")
+                ?? bundleTrackURL(name: selectedTrack, ext: "mp3") {
                 if let estimated = try? estimateBPM(from: url) {
                     print("[BPM] Estimated BPM:", estimated)
                     await MainActor.run { self.bpm = estimated }
