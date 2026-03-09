@@ -343,7 +343,12 @@ private struct LogoBouncingView: View {
 
 struct ContentView: View {
     var onTabBarVisibilityChange: ((Bool) -> Void)? = nil
-    private let premiumProductId: String = "premium.monthly"
+    private let premiumProductIds: Set<String> = ["ios.premium.monthly", "premium.monthly"]
+    #if os(watchOS)
+    private let preferredPremiumProductId: String = "premium.monthly"
+    #else
+    private let preferredPremiumProductId: String = "ios.premium.monthly"
+    #endif
     private let bestScoresStore = BestScoresStore(key: "bestScores")
     @State private var gameState: GameState = .splash
     @State private var score: Int = 0
@@ -4514,7 +4519,7 @@ private extension ContentView {
             transactionListenerTask = Task {
                 for await result in Transaction.updates {
                     guard case .verified(let transaction) = result else { continue }
-                    if transaction.productID == premiumProductId {
+                    if premiumProductIds.contains(transaction.productID) {
                         await MainActor.run {
                             premiumUnlocked = true
                             showPaywall = false
@@ -4572,9 +4577,9 @@ private extension ContentView {
 
     func loadProducts() async {
         do {
-            let products = try await Product.products(for: [premiumProductId])
+            let products = try await Product.products(for: Array(premiumProductIds))
             await MainActor.run {
-                premiumProduct = products.first
+                premiumProduct = products.first(where: { $0.id == preferredPremiumProductId }) ?? products.first
             }
             await updateSubscriptionStatusText()
         } catch {
@@ -4589,7 +4594,7 @@ private extension ContentView {
         var isActive = false
         for await result in Transaction.currentEntitlements {
             guard case .verified(let transaction) = result else { continue }
-            if transaction.productID == premiumProductId, transaction.revocationDate == nil {
+            if premiumProductIds.contains(transaction.productID), transaction.revocationDate == nil {
                 isActive = true
                 break
             }
