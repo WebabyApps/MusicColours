@@ -49,9 +49,9 @@ struct BestScoresStore {
     }
 
     @discardableResult
-    func record(score: Int, avatarId: String) -> [RecordEntry] {
+    func record(score: Int, avatarId: String, avatarName: String? = nil) -> [RecordEntry] {
         var updated = load()
-        updated.append(RecordEntry(score: score, avatarId: avatarId, createdAt: Date()))
+        updated.append(RecordEntry(score: score, avatarId: avatarId, avatarName: avatarName, createdAt: Date()))
         if updated.count > limit { updated = Array(updated.suffix(limit)) }
         if let data = try? JSONEncoder().encode(updated) {
             defaults.set(data, forKey: key)
@@ -68,12 +68,14 @@ struct RecordEntry: Codable, Identifiable, Equatable {
     let id: UUID
     let score: Int
     let avatarId: String
+    let avatarName: String?
     let createdAt: Date
 
-    init(score: Int, avatarId: String, createdAt: Date) {
+    init(score: Int, avatarId: String, avatarName: String? = nil, createdAt: Date) {
         self.id = UUID()
         self.score = score
         self.avatarId = avatarId
+        self.avatarName = avatarName
         self.createdAt = createdAt
     }
 }

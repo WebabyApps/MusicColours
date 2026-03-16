@@ -380,6 +380,7 @@ struct ContentView: View {
     @State private var isCountingDown: Bool = false
     @State private var countdownValue: Int = 3 // 3,2,1,0(Go)
     @State private var countdownFrozenT: TimeInterval? = nil
+    @State private var countdownSequence: Int = 0
     // Level-complete overlay (pause between levels)
     @State private var isLevelCompletePresented: Bool = false
     @State private var levelCompleteSpin: Double = 0
@@ -400,6 +401,7 @@ struct ContentView: View {
     @State private var purchaseInProgress: Bool = false
     @State private var purchaseError: String? = nil
     @State private var subscriptionStatusText: String? = nil
+    @State private var subscriptionDebugText: String? = nil
     @State private var transactionListenerTask: Task<Void, Never>? = nil
 
     // Additional new bonus states
@@ -434,6 +436,7 @@ struct ContentView: View {
     // Added states for hit and bonus effects
     @State private var showHitEffect: Bool = false
     @State private var showBonusEffect: Bool = false
+    @State private var showBombExplosionEffect: Bool = false
 
     // Added states for floating score popups
     struct ScorePopup: Identifiable {
@@ -447,8 +450,10 @@ struct ContentView: View {
     // Added beatPulse state for beat-driven animations
     @State private var beatPulse: Bool = false
 
-    // Added strike system state
+    // Wrong color taps allowance
     @State private var strikesRemaining: Int = 20
+    // Extra lives consumed only by deadly bombs
+    @State private var livesRemaining: Int = 3
 
     // Per-level bonus points for specific colors (+2/+3)
     @State private var bonusPointsByColor: [GameColor: Int] = [:]
@@ -461,6 +466,9 @@ struct ContentView: View {
     @State private var pendingRecordScore: Int? = nil
     @State private var isNewBestScore: Bool = false
     @State private var selectedAvatarId: String = AvatarCatalog.defaultId
+    @AppStorage("avatarColorIndex") private var avatarColorIndex: Int = 0
+    @AppStorage("avatarDisplayName") private var avatarDisplayName: String = ""
+    @State private var avatarJoyTrigger: Int = 0
     
     // Added shakeTrigger for shake animation on wrong tap
     @State private var shakeTrigger: Int = 0
@@ -473,7 +481,10 @@ struct ContentView: View {
             switch self { case .easy: return "tortoise.fill"; case .medium: return "speedometer"; case .hard: return "flame.fill" }
         }
         var allowedMistakes: Int {
-            switch self { case .easy: return 20; case .medium: return 10; case .hard: return 3 }
+            switch self { case .easy: return 20; case .medium: return 10; case .hard: return 5 }
+        }
+        var bombLives: Int {
+            switch self { case .easy: return 3; case .medium: return 2; case .hard: return 1 }
         }
         var timeLimitSeconds: Int? {
             switch self { case .easy: return 240; case .medium: return 120; case .hard: return nil }
@@ -497,6 +508,13 @@ struct ContentView: View {
     private var gameOverKey: LocalizedStringKey { "game_over" }
     private var playAgainKey: LocalizedStringKey { "play_again" }
     private var languageKey: LocalizedStringKey { "language" }
+    private var activeAvatarDisplayName: String {
+        let trimmed = avatarDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? AvatarCatalog.name(for: selectedAvatarId) : trimmed
+    }
+    private var avatarHueDegrees: Double {
+        AvatarColorPalette.hue(for: avatarColorIndex)
+    }
 
     private var effectiveBgSpeed: Double {
         if let until = slowBgUntil, until > Date() { return bgSpeed * 1.8 } // slower hue change
@@ -571,9 +589,12 @@ struct ContentView: View {
                 selectedAvatarId: $selectedAvatarId,
                 onRequestPremium: { showPaywall = true }
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .avatarSelect:
             AvatarSelectView(
                 selectedAvatarId: $selectedAvatarId,
+                avatarColorIndex: $avatarColorIndex,
+                avatarName: $avatarDisplayName,
                 premiumUnlocked: premiumUnlocked,
                 onStart: startCountdown,
                 onBack: { gameState = .menu },
@@ -601,18 +622,26 @@ struct ContentView: View {
                 beatPulse: beatPulse,
                 levelTimeRemaining: levelTimeRemaining,
                 strikesRemaining: strikesRemaining,
+                livesRemaining: livesRemaining,
                 shakeTrigger: shakeTrigger,
                 upcomingBonus: upcomingBonus,
                 isMuted: isMuted,
                 onToggleMute: { toggleMute() },
                 selectedAvatarId: selectedAvatarId,
+                avatarHueDegrees: avatarHueDegrees,
+                avatarName: avatarDisplayName,
+                avatarJoyTrigger: avatarJoyTrigger,
                 onDismissSkull: { dismissSkull() },
                 onResetBestScores: {
                     bestScoresStore.reset()
                     bestScores = []
                 },
                 onSaveRecord: { score in
-                    bestScores = bestScoresStore.record(score: score, avatarId: selectedAvatarId)
+                    bestScores = bestScoresStore.record(
+                        score: score,
+                        avatarId: selectedAvatarId,
+                        avatarName: activeAvatarDisplayName
+                    )
                     pendingRecordScore = nil
                     recordsPanelMode = .manual
                     isNewBestScore = false
@@ -637,6 +666,7 @@ struct ContentView: View {
                 scoreKey: scoreKey,
                 levelKey: levelKey,
                 selectedAvatarId: selectedAvatarId,
+                avatarHueDegrees: avatarHueDegrees,
                 lastScore: lastGameScore,
                 lastPlacement: lastGamePlacement,
                 isNewBestScore: isNewBestScore,
@@ -672,12 +702,17 @@ struct ContentView: View {
                 mode: recordsPanelMode,
                 isNewBestScore: isNewBestScore,
                 selectedAvatarId: selectedAvatarId,
+                avatarHueDegrees: avatarHueDegrees,
                 onReset: {
                     bestScoresStore.reset()
                     bestScores = []
                 },
                 onSave: { score in
-                    bestScores = bestScoresStore.record(score: score, avatarId: selectedAvatarId)
+                    bestScores = bestScoresStore.record(
+                        score: score,
+                        avatarId: selectedAvatarId,
+                        avatarName: activeAvatarDisplayName
+                    )
                     pendingRecordScore = nil
                     recordsPanelMode = .manual
                     isNewBestScore = false
@@ -702,11 +737,13 @@ struct ContentView: View {
                 onPurchase: { Task { await purchasePremium() } },
                 onRestore: { Task { await restorePurchases() } },
                 onClose: { showPaywall = false },
+                titleText: premiumProduct?.displayName ?? "Music Colours Premium",
                 priceText: premiumProduct?.displayPrice,
                 periodText: subscriptionPeriodText(for: premiumProduct),
                 isProcessing: purchaseInProgress,
                 errorText: purchaseError,
-                statusText: subscriptionStatusText
+                statusText: subscriptionStatusText,
+                debugText: subscriptionDebugText
             )
             .transition(.scale.combined(with: .opacity))
         }
@@ -742,6 +779,7 @@ struct ContentView: View {
                 spin: levelCompleteSpin,
                 pulse: levelCompletePulse,
                 avatarId: selectedAvatarId,
+                avatarHueDegrees: avatarHueDegrees,
                 selectedTrack: $selectedTrack,
                 availableTracks: availableTracks,
                 disallowedTrack: previousLevelTrack,
@@ -755,108 +793,120 @@ struct ContentView: View {
             BonusIndicators(invincibleUntil: invincibleUntil, slowBgUntil: slowBgUntil)
         }
 
-        OverlayLayer(showHitEffect: showHitEffect, showBonusEffect: showBonusEffect, scorePopups: scorePopups)
+        OverlayLayer(
+            showHitEffect: showHitEffect,
+            showBonusEffect: showBonusEffect,
+            showBombExplosionEffect: showBombExplosionEffect,
+            scorePopups: scorePopups
+        )
     }
 
     var body: some View {
         NavigationStack(path: $path) {
-            ZStack {
-                backgroundView
-                mainContentView
-                overlaysView
-            }
-            .background(Color.black)
-            .onAppear {
-                WatchSyncManager.shared.start()
-                setupAudioSession()
-                loadAvailableTracks()
-                bestScores = bestScoresStore.load()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    if audioPlayer?.isPlaying != true, !availableTracks.isEmpty, !isMuted {
-                        print("[Audio] Auto-play on appear:", selectedTrack)
-                        startAudioIfAvailable()
-                    }
+            GeometryReader { proxy in
+                ZStack {
+                    backgroundView
+                    mainContentView
+                    overlaysView
                 }
-                Task { await configureStoreKit() }
-                if gameState == .splash {
-                    isAnimatingBG = false
-                    showPulseVideo = true
-                    showFallingText = false
-                    musicOffset = -200
-                    coloursOffset = -200
-                    impactScale = 1.0
-                }
-                onTabBarVisibilityChange?(gameState == .menu)
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .tracksUpdated)) { _ in
-                loadAvailableTracks()
-            }
-            .onDisappear {
-                transactionListenerTask?.cancel()
-                transactionListenerTask = nil
-            }
-            .onChange(of: gameState) { _, newValue in
-                onTabBarVisibilityChange?(newValue == .menu)
-                if newValue == .playing {
-                    // If we entered .playing only to show the countdown, do not start timers yet
-                    if isCountingDown { return }
-                    updateBeatInterval(syncedToBPM: audioPlayer != nil)
-                    lastBeatDate = Date()
-                    timeRemaining = beatInterval
-                    startBeatLoop()
-                } else {
-                    stopBeatLoop()
-                    if newValue == .menu {
+                .frame(width: proxy.size.width, height: proxy.size.height)
+                .background(Color.black)
+                .onAppear {
+                    WatchSyncManager.shared.start()
+                    setupAudioSession()
+                    loadAvailableTracks()
+                    bestScores = bestScoresStore.load()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         if audioPlayer?.isPlaying != true, !availableTracks.isEmpty, !isMuted {
-                            print("[Audio] Auto-play on menu entry:", selectedTrack)
+                            print("[Audio] Auto-play on appear:", selectedTrack)
                             startAudioIfAvailable()
                         }
                     }
+                    Task { await configureStoreKit() }
+                    if gameState == .splash {
+                        isAnimatingBG = false
+                        showPulseVideo = true
+                        showFallingText = false
+                        musicOffset = -200
+                        coloursOffset = -200
+                        impactScale = 1.0
+                    }
+                    onTabBarVisibilityChange?(gameState == .menu)
                 }
-            }
-            .onChange(of: selectedTrack) { _, newValue in
-                print("[Audio] Track changed to:", newValue)
-                stopAudio()
-                if !isMuted {
-                    startAudioIfAvailable()
+                .onReceive(NotificationCenter.default.publisher(for: .tracksUpdated)) { _ in
+                    loadAvailableTracks()
                 }
-            }
-            .onChange(of: showRecordsPanel) { _, isOpen in
-                guard gameState == .playing else { return }
-                if isOpen {
-                    stopBeatLoop()
-                } else {
-                    if isCountingDown { return }
+                .onDisappear {
+                    transactionListenerTask?.cancel()
+                    transactionListenerTask = nil
+                }
+                .onChange(of: gameState) { newValue in
+                    onTabBarVisibilityChange?(newValue == .menu)
+                    if newValue == .playing {
+                        // If we entered .playing only to show the countdown, do not start timers yet
+                        if isCountingDown { return }
+                        updateBeatInterval(syncedToBPM: audioPlayer != nil)
+                        lastBeatDate = Date()
+                        timeRemaining = beatInterval
+                        startBeatLoop()
+                    } else {
+                        stopBeatLoop()
+                        if newValue == .menu {
+                            if audioPlayer?.isPlaying != true, !availableTracks.isEmpty, !isMuted {
+                                print("[Audio] Auto-play on menu entry:", selectedTrack)
+                                startAudioIfAvailable()
+                            }
+                        }
+                    }
+                }
+                .onChange(of: selectedTrack) { newValue in
+                    print("[Audio] Track changed to:", newValue)
+                    stopAudio()
+                    if !isMuted {
+                        startAudioIfAvailable()
+                    }
+                }
+                .onChange(of: showRecordsPanel) { isOpen in
+                    guard gameState == .playing else { return }
+                    if isOpen {
+                        stopBeatLoop()
+                    } else {
+                        if isCountingDown { return }
+                        if isLevelCompletePresented { return }
+                        updateBeatInterval(syncedToBPM: audioPlayer != nil)
+                        lastBeatDate = Date()
+                        timeRemaining = beatInterval
+                        startBeatLoop()
+                    }
+                }
+                .onReceive(Timer.publish(every: 1/30, on: .main, in: .common).autoconnect()) { _ in
+                    // Background animation handled by TimelineView
+                    // Countdown update while playing
+                    guard gameState == .playing else { return }
                     if isLevelCompletePresented { return }
-                    updateBeatInterval(syncedToBPM: audioPlayer != nil)
-                    lastBeatDate = Date()
-                    timeRemaining = beatInterval
-                    startBeatLoop()
+                    if isCountingDown { return }
+                    // Don't apply miss/time-out logic until the beat loop is actually running
+                    guard beatTimer != nil else { return }
+                    let elapsed = Date().timeIntervalSince(lastBeatDate)
+                    timeRemaining = max(0, beatInterval - elapsed)
+                    levelTimeRemaining = max(0, levelTimeRemaining - (1.0/30.0))
+                    if timeRemaining == 0 { endGame() }
+                    if difficulty.timeLimitSeconds != nil {
+                        if levelTimeRemaining == 0 { endGame() }
+                    } else {
+                        // Hard: check cycles completion handled elsewhere
+                    }
                 }
             }
-            .onReceive(Timer.publish(every: 1/30, on: .main, in: .common).autoconnect()) { _ in
-                // Background animation handled by TimelineView
-                // Countdown update while playing
-                guard gameState == .playing else { return }
-                if isLevelCompletePresented { return }
-                if isCountingDown { return }
-                // Don't apply miss/time-out logic until the beat loop is actually running
-                guard beatTimer != nil else { return }
-                let elapsed = Date().timeIntervalSince(lastBeatDate)
-                timeRemaining = max(0, beatInterval - elapsed)
-                levelTimeRemaining = max(0, levelTimeRemaining - (1.0/30.0))
-                if timeRemaining == 0 { endGame() }
-                if difficulty.timeLimitSeconds != nil {
-                    if levelTimeRemaining == 0 { endGame() }
-                } else {
-                    // Hard: check cycles completion handled elsewhere
-                }
-            }
+            .ignoresSafeArea()
         }
+        .toolbar(.hidden, for: .navigationBar)
     }
 
     // MARK: - Reset state for a fresh run (fixes timers ending immediately on replay)
     private func resetRunState() {
+        countdownSequence += 1
+
         // Stop any previous beat loop/timers first
         stopBeatLoop()
 
@@ -877,6 +927,7 @@ struct ContentView: View {
 
         // Reset strike/mistake system
         strikesRemaining = difficulty.allowedMistakes
+        livesRemaining = difficulty.bombLives
         shakeTrigger = 0
 
         // Reset timing so the first frame can’t immediately detect “timeRemaining == 0”
@@ -894,9 +945,15 @@ struct ContentView: View {
         // Reset countdown freeze
         countdownFrozenT = nil
         isCountingDown = false
+        countdownValue = 3
         isLevelCompletePresented = false
         levelCompleteSpin = 0
         levelCompletePulse = false
+        showTrackBanner = false
+        showHitEffect = false
+        showBonusEffect = false
+        showBombExplosionEffect = false
+        scorePopups.removeAll()
         showRecordsPanel = false
         recordsPanelMode = .manual
         lastGameScore = nil
@@ -1135,12 +1192,14 @@ private struct AnimatedDepthBackground: View {
 private struct OverlayLayer: View {
     let showHitEffect: Bool
     let showBonusEffect: Bool
+    let showBombExplosionEffect: Bool
     let scorePopups: [ContentView.ScorePopup]
 
     var body: some View {
         ZStack {
             if showHitEffect { HitEffectView() }
             if showBonusEffect { BonusWowEffectView() }
+            if showBombExplosionEffect { BombExplosionEffectView() }
             ForEach(scorePopups) { popup in
                 FloatingPlusOneView(text: popup.text)
             }
@@ -1407,7 +1466,7 @@ private struct CountdownOverlayView: View {
                 .opacity(opacity)
         }
         .onAppear { animate() }
-        .onChange(of: value) { _, _ in animate() }
+        .onChange(of: value) { _ in animate() }
     }
 
     private func animate() {
@@ -1438,6 +1497,7 @@ private struct LevelCompleteOverlayView: View {
     let spin: Double
     let pulse: Bool
     let avatarId: String
+    let avatarHueDegrees: Double
     @Binding var selectedTrack: String
     let availableTracks: [String]
     let disallowedTrack: String?
@@ -1602,7 +1662,7 @@ private struct LevelCompleteOverlayView: View {
         let effectivePulse: Bool = pulse || localPulse
 
         if !avatarId.isEmpty {
-            AvatarDisplayView(avatarId: avatarId)
+            AvatarDisplayView(avatarId: avatarId, hueRotationDegrees: avatarHueDegrees)
                 .frame(width: 80, height: 80)
                 .shadow(radius: 4)
         } else if badge == "🐢" {
@@ -1839,23 +1899,6 @@ private struct MenuView: View {
                 Spacer(minLength: 4)
             }
             .padding()
-            .overlay(alignment: .top) {
-                if showDifficultyToast {
-                    Text("\(difficultyPrefix()): \(difficultyTitleLocalized())")
-                        .font(.caption2)
-                        .foregroundStyle(.white)
-                        .padding(.vertical, 6)
-                        .padding(.horizontal, 10)
-                        .background(.ultraThinMaterial, in: Capsule())
-                        .shadow(color: .black.opacity(0.25), radius: 4, x: 0, y: 2)
-                        .transition(.opacity)
-                        .padding(.top, 6)
-                        .onAppear {
-                            // ensure it fades in smoothly
-                            withAnimation(.easeIn(duration: 0.15)) { }
-                        }
-                }
-            }
             #if !os(watchOS)
             .alert("Add on iPhone", isPresented: $showAddOnPhone) {
                 Button("OK", role: .cancel) { }
@@ -1864,6 +1907,25 @@ private struct MenuView: View {
             }
             #endif
         }
+        .overlay(alignment: .top) {
+            GeometryReader { proxy in
+                if showDifficultyToast {
+                    Text("\(difficultyPrefix()): \(difficultyTitleLocalized())")
+                        .font(isPhone ? .callout.weight(.semibold) : .caption2)
+                        .foregroundStyle(.white)
+                        .padding(.vertical, isPhone ? 8 : 6)
+                        .padding(.horizontal, isPhone ? 14 : 10)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .shadow(color: .black.opacity(0.25), radius: 4, x: 0, y: 2)
+                        .padding(.top, proxy.safeAreaInsets.top + (isPhone ? 48 : 6))
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .zIndex(30)
+                        .allowsHitTesting(false)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea()
         .background(Color.black.opacity(0.001))
     }
@@ -1889,12 +1951,16 @@ private struct GamePlayView: View {
     let beatPulse: Bool
     let levelTimeRemaining: TimeInterval
     let strikesRemaining: Int
+    let livesRemaining: Int
     let shakeTrigger: Int
     let upcomingBonus: ContentView.BonusType?
     
     let isMuted: Bool
     let onToggleMute: () -> Void
     let selectedAvatarId: String
+    let avatarHueDegrees: Double
+    let avatarName: String
+    let avatarJoyTrigger: Int
     
     let onDismissSkull: () -> Void
     let onResetBestScores: () -> Void
@@ -1907,7 +1973,9 @@ private struct GamePlayView: View {
     // Added local animation state for skull shake and fade
     @State private var skullShakeTrigger: Int = 0
     @State private var skullFadeOut: Bool = false
-    @State private var avatarPulse: Bool = false
+    @State private var avatarJoyScale: CGFloat = 1.0
+    @State private var avatarJoyYOffset: CGFloat = 0
+    @State private var avatarJoyRotation: Double = 0
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var hSize
     #endif
@@ -1932,6 +2000,37 @@ private struct GamePlayView: View {
         case .slowBackground: return .blue
         case .addTime: return .yellow
         case .deadly: return .black
+        }
+    }
+
+    private var displayAvatarName: String {
+        let trimmed = avatarName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? AvatarCatalog.name(for: selectedAvatarId) : trimmed
+    }
+    private var livesHearts: String {
+        let hearts = String(repeating: "❤️", count: max(0, livesRemaining))
+        return hearts.isEmpty ? "—" : hearts
+    }
+
+    private func triggerAvatarJoy() {
+        withAnimation(.spring(response: 0.2, dampingFraction: 0.45)) {
+            avatarJoyScale = 1.18
+            avatarJoyYOffset = -10
+            avatarJoyRotation = 8
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+            withAnimation(.spring(response: 0.2, dampingFraction: 0.5)) {
+                avatarJoyScale = 1.06
+                avatarJoyYOffset = -4
+                avatarJoyRotation = -8
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.34) {
+            withAnimation(.spring(response: 0.22, dampingFraction: 0.7)) {
+                avatarJoyScale = 1.0
+                avatarJoyYOffset = 0
+                avatarJoyRotation = 0
+            }
         }
     }
 
@@ -1967,28 +2066,38 @@ private struct GamePlayView: View {
         let ringSize: CGFloat = 74
         let coreSize: CGFloat = 56
         let trimSize: CGFloat = 60
+        let watchHudFont: Font = .system(size: 10, weight: .semibold, design: .rounded)
         return ZStack {
             VStack(spacing: 6) {
-                HStack {
+                HStack(spacing: 3) {
                     HStack(spacing: 4) {
-                        Text(scoreKey).font(.caption2)
-                        Text("\(score)").font(.caption2)
+                        Text(scoreKey)
+                        Text("\(score)")
                     }
                     Spacer()
                     HStack(spacing: 4) {
-                        Text(levelKey).font(.caption2)
-                        Text("\(level)").font(.caption2)
+                        Text(levelKey)
+                        Text("\(level)")
                     }
                     HStack(spacing: 4) {
                         Image(systemName: "timer")
                         Text("\(Int(max(0, levelTimeRemaining)))s")
                     }
-                    .font(.caption2)
+                    .font(watchHudFont)
                     HStack(spacing: 2) {
                         Image(systemName: "xmark.circle")
                         Text("\(strikesRemaining)")
-                    }.font(.caption2)
+                    }
+                    .font(watchHudFont)
+                    HStack(spacing: 2) {
+                        Image(systemName: "heart.fill")
+                        Text("\(livesRemaining)")
+                    }
+                    .font(watchHudFont)
+                    AvatarDisplayView(avatarId: selectedAvatarId, hueRotationDegrees: avatarHueDegrees)
+                        .frame(width: 16, height: 16)
                 }
+                .font(watchHudFont)
                 .padding(.horizontal, 4)
 
                 // Target indicator
@@ -2114,11 +2223,6 @@ private struct GamePlayView: View {
                 .buttonStyle(.plain)
                 .padding(.leading, 4)
             }
-            .overlay(alignment: .trailing) {
-                AvatarDisplayView(avatarId: selectedAvatarId)
-                    .frame(width: 32, height: 32)
-                    .padding(.trailing, 4)
-            }
         }
         .padding(.vertical, 4)
         .overlay {
@@ -2141,6 +2245,7 @@ private struct GamePlayView: View {
                     mode: recordsPanelMode,
                     isNewBestScore: isNewBestScore,
                     selectedAvatarId: selectedAvatarId,
+                    avatarHueDegrees: avatarHueDegrees,
                     onReset: onResetBestScores,
                     onSave: onSaveRecord,
                     onDiscard: onDiscardRecord,
@@ -2195,16 +2300,42 @@ private struct GamePlayView: View {
 
         return ZStack {
             // Header at top (iPhone HUD)
-            VStack(spacing: 6) {
+            VStack(spacing: 8) {
                 HStack(spacing: 8) {
                     hudPill(title: "Score", value: "\(score)", systemImage: "trophy.fill")
                     hudPill(title: "Level", value: "\(level)", systemImage: "flag.fill")
                     hudPill(title: "Time", value: "\(Int(max(0, levelTimeRemaining)))s", systemImage: "timer")
                     Spacer(minLength: 4)
                     hudPillCompact(value: "\(strikesRemaining)", systemImage: "xmark.circle")
+                    hudPillCompact(value: livesHearts, systemImage: "heart.fill")
                 }
                 .padding(.horizontal, 12)
-                .padding(.top, 6)
+                .padding(.top, isPhone ? 54 : 6)
+
+                if isPhone {
+                    VStack(spacing: 6) {
+                        AvatarDisplayView(avatarId: selectedAvatarId, hueRotationDegrees: avatarHueDegrees)
+                            .frame(width: 74, height: 74)
+                            .background(
+                                Circle()
+                                    .fill(Color.black.opacity(0.22))
+                                    .overlay(Circle().stroke(Color.white.opacity(0.35), lineWidth: 1))
+                            )
+                            .clipShape(Circle())
+                            .shadow(color: .black.opacity(0.35), radius: 8, x: 0, y: 6)
+                        Text(displayAvatarName)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Capsule().fill(Color.black.opacity(0.32)))
+                    }
+                    .scaleEffect(avatarJoyScale)
+                    .offset(y: avatarJoyYOffset)
+                    .rotationEffect(.degrees(avatarJoyRotation))
+                    .accessibilityIdentifier("recordsAvatarButton")
+                }
                 Spacer()
             }
 
@@ -2289,7 +2420,11 @@ private struct GamePlayView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             .onTapGesture {
                 if giftAvailable {
-                    onCollectGift()
+                    if upcomingBonus == .deadly {
+                        onDismissSkull()
+                    } else {
+                        onCollectGift()
+                    }
                 }
             }
 
@@ -2332,11 +2467,6 @@ private struct GamePlayView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .allowsHitTesting(!showRecordsPanel)
-        // Center-left mute button overlay
-        VStack {
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(alignment: .leading) {
             Button(action: onToggleMute) {
                 Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
@@ -2350,34 +2480,8 @@ private struct GamePlayView: View {
         }
         .padding(.vertical, 4)
         .overlay(alignment: .trailing) {
-            if isPhone {
-                Button(action: {
-                    onOpenRecordsPanelSound()
-                    withAnimation(.spring(response: 0.25, dampingFraction: 0.6)) { avatarPulse = true }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.7)) { avatarPulse = false }
-                    }
-                    recordsPanelMode = .manual
-                    showRecordsPanel = true
-                }) {
-                    AvatarDisplayView(avatarId: selectedAvatarId)
-                        .frame(width: 52, height: 52)
-                        .scaleEffect(avatarPulse ? 1.12 : 1.0)
-                        .background(
-                            Circle()
-                                .fill(Color.black.opacity(0.18))
-                                .overlay(Circle().stroke(Color.white.opacity(0.25), lineWidth: 1))
-                        )
-                        .clipShape(Circle())
-                        .shadow(color: .black.opacity(0.35), radius: 8, x: 0, y: 6)
-                }
-                .buttonStyle(.plain)
-                .padding(.trailing, 10)
-                .offset(y: targetYOffset)
-                .accessibilityIdentifier("recordsAvatarButton")
-                .zIndex(20)
-            } else {
-                AvatarDisplayView(avatarId: selectedAvatarId)
+            if !isPhone {
+                AvatarDisplayView(avatarId: selectedAvatarId, hueRotationDegrees: avatarHueDegrees)
                     .frame(width: 32, height: 32)
                     .padding(.trailing, 4)
             }
@@ -2402,6 +2506,7 @@ private struct GamePlayView: View {
                     mode: recordsPanelMode,
                     isNewBestScore: isNewBestScore,
                     selectedAvatarId: selectedAvatarId,
+                    avatarHueDegrees: avatarHueDegrees,
                     onReset: onResetBestScores,
                     onSave: onSaveRecord,
                     onDiscard: onDiscardRecord,
@@ -2415,28 +2520,39 @@ private struct GamePlayView: View {
                     .zIndex(1)
             }
         }
-        .overlay(alignment: .bottomTrailing) {
-            if !isPhone {
-                Button(action: {
-                    if showRecordsPanel {
-                        showRecordsPanel = false
-                    } else {
-                        recordsPanelMode = .manual
-                        showRecordsPanel = true
+        .overlay {
+            GeometryReader { proxy in
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Button(action: {
+                            if showRecordsPanel {
+                                showRecordsPanel = false
+                            } else {
+                                onOpenRecordsPanelSound()
+                                recordsPanelMode = .manual
+                                showRecordsPanel = true
+                            }
+                        }) {
+                            Image(systemName: showRecordsPanel ? "eye.slash" : "eye")
+                                .font(.system(size: isPhone ? 18 : 10, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: isPhone ? 42 : 28, height: isPhone ? 42 : 28)
+                                .background(Circle().fill(Color.black.opacity(0.38)))
+                        }
+                        .accessibilityIdentifier("recordsToggle")
+                        .buttonStyle(.plain)
+                        .padding(.trailing, isPhone ? 16 : 8)
+                        .padding(.bottom, proxy.safeAreaInsets.bottom + (isPhone ? 18 : 12))
+                        .zIndex(3)
                     }
-                }) {
-                    Image(systemName: showRecordsPanel ? "eye.slash" : "eye")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(6)
-                        .background(Circle().fill(Color.black.opacity(0.35)))
                 }
-                .accessibilityIdentifier("recordsToggle")
-                .buttonStyle(.plain)
-                .padding(.trailing, 8)
-                .padding(.bottom, 12)
-                .zIndex(3)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+        }
+        .onChange(of: avatarJoyTrigger) { _ in
+            triggerAvatarJoy()
         }
     }
     #endif
@@ -2482,6 +2598,7 @@ private struct BestScoresView: View {
     let mode: ContentView.RecordsPanelMode
     let isNewBestScore: Bool
     let selectedAvatarId: String
+    let avatarHueDegrees: Double
     let onReset: () -> Void
     let onSave: (Int) -> Void
     let onDiscard: () -> Void
@@ -2512,7 +2629,7 @@ private struct BestScoresView: View {
                 .accessibilityLabel("Reset records")
             }
             if isPhone {
-                AvatarDisplayView(avatarId: selectedAvatarId)
+                AvatarDisplayView(avatarId: selectedAvatarId, hueRotationDegrees: avatarHueDegrees)
                     .frame(width: 64, height: 64)
                     .shadow(color: .black.opacity(0.25), radius: 6, x: 0, y: 4)
             }
@@ -2580,25 +2697,40 @@ private struct BestScoresView: View {
                     let lastFive = Array(scores.suffix(5)).reversed()
                     ForEach(Array(lastFive.enumerated()), id: \.offset) { index, entry in
                         let isNew = isNewBestScore && index == 0 && lastScore == entry.score
-                        HStack(spacing: 8) {
-                            Text("\(index + 1).")
-                                .font(.headline).bold()
-                                .foregroundStyle(.white.opacity(0.9))
-                                .frame(width: 18, alignment: .leading)
+                        HStack(spacing: 10) {
+                            Text("\(index + 1)")
+                                .font(.caption.bold())
+                                .foregroundStyle(.white)
+                                .frame(width: 24, height: 24)
+                                .background(Circle().fill(Color.white.opacity(0.18)))
+
                             recentScoreAvatarIcon(avatarId: entry.avatarId)
-                                .frame(width: 22, height: 22)
-                            Text(AvatarCatalog.name(for: entry.avatarId))
-                                .font(.caption2)
-                                .foregroundStyle(.white.opacity(0.9))
+                                .frame(width: 28, height: 28)
+                                .background(Circle().fill(Color.white.opacity(0.12)))
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(recordDisplayName(entry))
+                                    .font(.caption.bold())
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                Text(entry.createdAt, style: .time)
+                                    .font(.caption2)
+                                    .foregroundStyle(.white.opacity(0.72))
+                            }
+                            Spacer(minLength: 8)
                             Text("\(entry.score)")
-                                .font(.title3.bold())
-                                .foregroundStyle(.white.opacity(0.95))
+                                .font(.title3.weight(.heavy))
+                                .foregroundStyle(isNew ? .yellow : .white)
                         }
-                        .padding(.vertical, 2)
-                        .padding(.horizontal, 4)
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 10)
                         .background(
-                            Capsule()
-                                .fill(isNew ? Color.yellow.opacity(0.55) : Color.clear)
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .fill(isNew ? Color.yellow.opacity(0.28) : Color.white.opacity(0.08))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(isNew ? Color.yellow.opacity(0.85) : Color.white.opacity(0.12), lineWidth: 1)
                         )
                     }
                 }
@@ -2627,6 +2759,12 @@ private struct BestScoresView: View {
         } else {
             AvatarIconView(avatarId: avatarId)
         }
+    }
+
+    private func recordDisplayName(_ entry: RecordEntry) -> String {
+        let customName = entry.avatarName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !customName.isEmpty { return customName }
+        return AvatarCatalog.name(for: entry.avatarId)
     }
 }
 
@@ -2681,6 +2819,7 @@ private struct GameOverView: View {
     let scoreKey: LocalizedStringKey
     let levelKey: LocalizedStringKey
     let selectedAvatarId: String
+    let avatarHueDegrees: Double
     let lastScore: Int?
     let lastPlacement: Int?
     let isNewBestScore: Bool
@@ -2694,7 +2833,7 @@ private struct GameOverView: View {
         #endif
         VStack(spacing: 8) {
             if isPhone {
-                AvatarDisplayView(avatarId: selectedAvatarId)
+                AvatarDisplayView(avatarId: selectedAvatarId, hueRotationDegrees: avatarHueDegrees)
                     .frame(width: 64, height: 64)
                     .shadow(color: .black.opacity(0.25), radius: 6, x: 0, y: 4)
             }
@@ -2784,6 +2923,10 @@ private struct AvatarCatalog {
         Item(id: "avatar_robot_1", systemName: nil, assetName: nil, displayName: "Robot"),
         Item(id: "avatar_robot_cat", systemName: nil, assetName: nil, displayName: "RoboCat"),
         Item(id: "avatar_robot_dog", systemName: nil, assetName: nil, displayName: "RoboDog"),
+        Item(id: "avatar_robot_lion", systemName: nil, assetName: nil, displayName: "RoboLion"),
+        Item(id: "avatar_robot_elephant", systemName: nil, assetName: nil, displayName: "RoboElephant"),
+        Item(id: "avatar_robot_wolf", systemName: nil, assetName: nil, displayName: "RoboWolf"),
+        Item(id: "avatar_robot_snake", systemName: nil, assetName: nil, displayName: "RoboSnake"),
         Item(id: "avatar_robot_bunny", systemName: nil, assetName: nil, displayName: "RoboBunny"),
         Item(id: "avatar_robot_monkey", systemName: nil, assetName: nil, displayName: "RoboMonkey"),
         Item(id: "avatar_robot_owl", systemName: nil, assetName: nil, displayName: "RoboOwl"),
@@ -2791,16 +2934,17 @@ private struct AvatarCatalog {
         Item(id: "avatar_robot_fox", systemName: nil, assetName: nil, displayName: "RoboFox"),
         Item(id: "avatar_robot_bear", systemName: nil, assetName: nil, displayName: "RoboBear"),
         Item(id: "avatar_robot_panda", systemName: nil, assetName: nil, displayName: "RoboPanda"),
-        Item(id: "avatar_robot_frog", systemName: nil, assetName: nil, displayName: "RoboFrog"),
-        Item(id: "avatar_pet_1", systemName: nil, assetName: "pet_1", displayName: "Jumper"),
-        Item(id: "avatar_pet_2", systemName: nil, assetName: "pet_2", displayName: "Doggy"),
-        Item(id: "avatar_pet_3", systemName: nil, assetName: "pet_3", displayName: "Kitty")
+        Item(id: "avatar_robot_frog", systemName: nil, assetName: nil, displayName: "RoboFrog")
     ]
 
     static func robotPetKind(for avatarId: String) -> RobotPetIconView.Kind? {
         switch avatarId {
         case "avatar_robot_cat": return .cat
         case "avatar_robot_dog": return .dog
+        case "avatar_robot_lion": return .lion
+        case "avatar_robot_elephant": return .elephant
+        case "avatar_robot_wolf": return .wolf
+        case "avatar_robot_snake": return .snake
         case "avatar_robot_bunny": return .rabbit
         case "avatar_robot_monkey": return .monkey
         case "avatar_robot_owl": return .owl
@@ -2847,6 +2991,21 @@ private struct AvatarCatalog {
         let locked = lockedItems(premiumUnlocked: premiumUnlocked)
         guard !locked.isEmpty else { return nil }
         return locked.randomElement()?.id
+    }
+}
+
+private enum AvatarColorPalette {
+    static let hueSteps: [Double] = [0, 24, 48, 72, 96, 132, 168, 204, 240, 288, 324]
+
+    static func normalizedIndex(_ index: Int) -> Int {
+        guard !hueSteps.isEmpty else { return 0 }
+        let count = hueSteps.count
+        return ((index % count) + count) % count
+    }
+
+    static func hue(for index: Int) -> Double {
+        guard !hueSteps.isEmpty else { return 0 }
+        return hueSteps[normalizedIndex(index)]
     }
 }
 
@@ -2909,6 +3068,8 @@ private struct AvatarCarousel: View {
 
 private struct AvatarSelectView: View {
     @Binding var selectedAvatarId: String
+    @Binding var avatarColorIndex: Int
+    @Binding var avatarName: String
     let premiumUnlocked: Bool
     let onStart: () -> Void
     let onBack: () -> Void
@@ -2916,6 +3077,11 @@ private struct AvatarSelectView: View {
 
     @State private var index: Int = 0
     @State private var showAvatarStore: Bool = false
+    @State private var isEditingAvatarName: Bool = false
+    @State private var renameHintPulse: Bool = false
+    #if os(iOS)
+    @FocusState private var isAvatarNameFieldFocused: Bool
+    #endif
 
     var body: some View {
         #if os(iOS)
@@ -2923,10 +3089,12 @@ private struct AvatarSelectView: View {
         #else
         let isPhone = false
         #endif
+        let lockedItems = AvatarCatalog.lockedItems(premiumUnlocked: premiumUnlocked)
         VStack(spacing: 10) {
             Text("Select avatar")
                 .font(isPhone ? .headline : .caption)
                 .foregroundStyle(.white.opacity(0.85))
+                .padding(.top, isPhone ? 0 : 20)
 
             let availableItems = AvatarCatalog.unlockedItems(premiumUnlocked: premiumUnlocked)
             #if os(watchOS)
@@ -2945,22 +3113,10 @@ private struct AvatarSelectView: View {
                 }
                 .buttonStyle(.plain)
 
-                Group {
-                    if selectedAvatarId == "avatar_robot_1" {
-                        RobotAvatarView(style: .bot)
-                            .scaleEffect(isPhone ? 1.45 : 1.0)
-                    } else if let kind = AvatarCatalog.robotPetKind(for: selectedAvatarId) {
-                        RobotPetIconView(kind: kind, background: .clear)
-                    } else if selectedAvatarId.hasPrefix("avatar_pet_") {
-                        AvatarSpriteView(avatarId: selectedAvatarId)
-                    } else {
-                        Image(systemName: "pawprint.fill")
-                            .resizable()
-                            .renderingMode(.original)
-                            .interpolation(.high)
-                            .scaledToFit()
-                    }
-                }
+                AvatarDisplayView(
+                    avatarId: selectedAvatarId,
+                    hueRotationDegrees: AvatarColorPalette.hue(for: avatarColorIndex)
+                )
                 .frame(width: avatarSize, height: avatarSize)
                 .contentShape(Rectangle())
                 .gesture(
@@ -2984,23 +3140,143 @@ private struct AvatarSelectView: View {
                 .buttonStyle(.plain)
             }
 
-            Text(currentDisplayName(items: availableItems))
-                .font(isPhone ? .callout : .caption2)
-                .foregroundStyle(.white.opacity(0.85))
+            HStack(spacing: 10) {
+                Button(action: { shiftAvatarColor(-1) }) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: isPhone ? 16 : 12, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: isPhone ? 32 : 26, height: isPhone ? 32 : 26)
+                        .background(Circle().fill(.ultraThinMaterial))
+                }
+                .buttonStyle(.plain)
+
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color(hue: ((AvatarColorPalette.hue(for: avatarColorIndex) - 12).truncatingRemainder(dividingBy: 360) + 360) / 360, saturation: 0.85, brightness: 1.0),
+                                    Color(hue: (AvatarColorPalette.hue(for: avatarColorIndex).truncatingRemainder(dividingBy: 360) + 360) / 360, saturation: 0.85, brightness: 1.0),
+                                    Color(hue: ((AvatarColorPalette.hue(for: avatarColorIndex) + 12).truncatingRemainder(dividingBy: 360) + 360) / 360, saturation: 0.85, brightness: 1.0)
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(Color.white.opacity(0.65), lineWidth: 1)
+                        )
 
 #if os(watchOS)
-            Button(action: { showAvatarStore = true }) {
-                Image(systemName: "plus.circle.fill")
-                    .font(.system(size: isPhone ? 18 : 14, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: isPhone ? 32 : 26, height: isPhone ? 32 : 26)
-                    .background(Circle().fill(.ultraThinMaterial))
-            }
-            .buttonStyle(.plain)
-            #if os(watchOS)
-            .offset(y: -8)
-            #endif
+                    if isEditingAvatarName {
+                        TextField(currentDisplayName(items: availableItems), text: $avatarName)
+                            .textFieldStyle(.plain)
+                            .font(.caption2.weight(.semibold))
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6)
+                            .submitLabel(.done)
+                            .onSubmit {
+                                finishAvatarNameEditing(items: availableItems)
+                            }
+                    } else {
+                        Text(displayedAvatarName(items: availableItems))
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.white.opacity(renameHintPulse ? 1.0 : 0.85))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                            .padding(.horizontal, 6)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                beginAvatarNameEditing(items: availableItems)
+                            }
+                    }
 #endif
+                }
+                .frame(width: isPhone ? 84 : 72, height: isPhone ? 28 : 22)
+
+                Button(action: { shiftAvatarColor(1) }) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: isPhone ? 16 : 12, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: isPhone ? 32 : 26, height: isPhone ? 32 : 26)
+                        .background(Circle().fill(.ultraThinMaterial))
+                }
+                .buttonStyle(.plain)
+            }
+            .onChange(of: avatarName) { newValue in
+                let cleaned = sanitizeAvatarName(newValue)
+                if cleaned != newValue {
+                    avatarName = cleaned
+                }
+            }
+
+#if os(iOS)
+            VStack(spacing: 4) {
+                if isEditingAvatarName {
+                    TextField(currentDisplayName(items: availableItems), text: $avatarName)
+                        .textFieldStyle(.plain)
+                        .font(isPhone ? .callout.weight(.semibold) : .caption2.weight(.semibold))
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Capsule().fill(Color.black.opacity(0.28)))
+                        .submitLabel(.done)
+#if os(iOS)
+                        .focused($isAvatarNameFieldFocused)
+#endif
+                        .onSubmit {
+                            finishAvatarNameEditing(items: availableItems)
+                        }
+                } else {
+                    Text(displayedAvatarName(items: availableItems))
+                        .font(isPhone ? .callout.weight(.semibold) : .caption2.weight(.semibold))
+                        .foregroundStyle(.white.opacity(renameHintPulse ? 1.0 : 0.8))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Capsule().fill(Color.black.opacity(0.18)))
+                        .overlay(alignment: .bottom) {
+                            Capsule()
+                                .fill(Color.white.opacity(renameHintPulse ? 0.9 : 0.45))
+                                .frame(height: 1)
+                                .padding(.horizontal, 8)
+                                .offset(y: 3)
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            beginAvatarNameEditing(items: availableItems)
+                        }
+
+                    Text("Tap name to edit")
+                        .font(.caption2)
+                        .foregroundStyle(.white.opacity(renameHintPulse ? 0.9 : 0.55))
+                }
+            }
+            .padding(.horizontal, isPhone ? 16 : 8)
+#else
+            EmptyView()
+#endif
+
+            if !lockedItems.isEmpty {
+                Button(action: { showAvatarStore = true }) {
+                    HStack(spacing: 8) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: isPhone ? 18 : 14, weight: .bold))
+                        Text(isPhone ? "More avatars" : "More")
+                            .font(isPhone ? .callout.weight(.semibold) : .caption2.weight(.semibold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, isPhone ? 14 : 10)
+                    .frame(height: isPhone ? 38 : 28)
+                    .background(.ultraThinMaterial, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                #if os(watchOS)
+                .offset(y: -8)
+                #endif
+            }
 
             Button(action: onStart) {
                 Image(systemName: "play.fill")
@@ -3017,7 +3293,6 @@ private struct AvatarSelectView: View {
             #endif
         }
         .padding(12)
-#if os(watchOS)
         .sheet(isPresented: $showAvatarStore) {
             AvatarStoreSheet(
                 premiumUnlocked: premiumUnlocked,
@@ -3025,7 +3300,6 @@ private struct AvatarSelectView: View {
                 onRequestPremium: onRequestPremium
             )
         }
-#endif
         .overlay(alignment: .topLeading) {
             Button(action: onBack) {
                 Image(systemName: "chevron.left")
@@ -3036,7 +3310,7 @@ private struct AvatarSelectView: View {
             }
             .buttonStyle(.plain)
             .padding(.leading, 6)
-            .padding(.top, 6)
+            .padding(.top, isPhone ? 6 : 20)
         }
         .onAppear {
             let items = AvatarCatalog.unlockedItems(premiumUnlocked: premiumUnlocked)
@@ -3045,6 +3319,11 @@ private struct AvatarSelectView: View {
             } else {
                 index = 0
                 selectedAvatarId = items.first?.id ?? AvatarCatalog.defaultId
+            }
+            avatarColorIndex = AvatarColorPalette.normalizedIndex(avatarColorIndex)
+            avatarName = sanitizeAvatarName(avatarName)
+            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                renameHintPulse = true
             }
         }
     }
@@ -3058,11 +3337,53 @@ private struct AvatarSelectView: View {
         }
     }
 
+    private func shiftAvatarColor(_ delta: Int) {
+        avatarColorIndex = AvatarColorPalette.normalizedIndex(avatarColorIndex + delta)
+    }
+
     private func currentDisplayName(items: [AvatarCatalog.Item]) -> String {
         if let match = items.first(where: { $0.id == selectedAvatarId }) {
             return match.displayName
         }
         return AvatarCatalog.name(for: selectedAvatarId)
+    }
+
+    private func displayedAvatarName(items: [AvatarCatalog.Item]) -> String {
+        let custom = sanitizeAvatarName(avatarName)
+        if custom.isEmpty {
+            return currentDisplayName(items: items)
+        }
+        return custom
+    }
+
+    private func beginAvatarNameEditing(items: [AvatarCatalog.Item]) {
+        if sanitizeAvatarName(avatarName).isEmpty {
+            avatarName = currentDisplayName(items: items)
+        }
+        isEditingAvatarName = true
+        #if os(iOS)
+        DispatchQueue.main.async {
+            isAvatarNameFieldFocused = true
+        }
+        #endif
+    }
+
+    private func finishAvatarNameEditing(items: [AvatarCatalog.Item]) {
+        let cleaned = sanitizeAvatarName(avatarName)
+        avatarName = cleaned
+        isEditingAvatarName = false
+        #if os(iOS)
+        isAvatarNameFieldFocused = false
+        #endif
+        if cleaned == currentDisplayName(items: items) {
+            avatarName = cleaned
+        }
+    }
+
+    private func sanitizeAvatarName(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let bounded = String(trimmed.prefix(18))
+        return bounded
     }
 }
 
@@ -3072,55 +3393,107 @@ private struct AvatarStoreSheet: View {
     let onRequestPremium: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var index: Int = 0
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var hSize
+    #endif
 
     var body: some View {
-        VStack(spacing: 10) {
-            Text("Avatar Shop")
-                .font(.headline)
-            if lockedItems.isEmpty {
-                Text("All avatars unlocked")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            } else {
-                HStack(spacing: 10) {
-                    Button(action: { move(-1) }) {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 12, weight: .bold))
+        #if os(iOS)
+        let isPhone = (hSize == .compact)
+        #else
+        let isPhone = false
+        #endif
+        let avatarSize: CGFloat = isPhone ? 112 : 64
+        let controlSize: CGFloat = isPhone ? 42 : 26
+
+        GeometryReader { proxy in
+            ZStack {
+                LinearGradient(
+                    colors: [
+                        Color.black.opacity(isPhone ? 0.42 : 0.18),
+                        Color.brown.opacity(isPhone ? 0.32 : 0.12)
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .ignoresSafeArea()
+
+                VStack(spacing: isPhone ? 18 : 10) {
+                    Text("Avatar Shop")
+                        .font(isPhone ? .title2.bold() : .headline)
+                        .foregroundStyle(.white)
+
+                    if lockedItems.isEmpty {
+                        Text("All avatars unlocked")
+                            .font(isPhone ? .callout : .caption2)
+                            .foregroundStyle(.white.opacity(0.8))
+                    } else {
+                        HStack(spacing: isPhone ? 18 : 10) {
+                            Button(action: { move(-1) }) {
+                                Image(systemName: "chevron.left")
+                                    .font(.system(size: isPhone ? 18 : 12, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: controlSize, height: controlSize)
+                                    .background(Circle().fill(Color.white.opacity(0.16)))
+                            }
+                            .buttonStyle(.plain)
+
+                            AvatarDisplayView(avatarId: lockedItems[index].id)
+                                .frame(width: avatarSize, height: avatarSize)
+                                .padding(isPhone ? 12 : 6)
+                                .background(
+                                    Circle()
+                                        .fill(Color.white.opacity(0.10))
+                                        .overlay(Circle().stroke(Color.white.opacity(0.18), lineWidth: 1))
+                                )
+
+                            Button(action: { move(1) }) {
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: isPhone ? 18 : 12, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .frame(width: controlSize, height: controlSize)
+                                    .background(Circle().fill(Color.white.opacity(0.16)))
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        Text(lockedItems[index].displayName)
+                            .font(isPhone ? .headline.weight(.semibold) : .caption.weight(.semibold))
                             .foregroundStyle(.white)
-                            .frame(width: 26, height: 26)
-                            .background(Circle().fill(.ultraThinMaterial))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Capsule().fill(Color.black.opacity(0.2)))
+
+                        Text("Available with Premium")
+                            .font(isPhone ? .callout.weight(.medium) : .caption2.weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.78))
                     }
-                    .buttonStyle(.plain)
 
-                    AvatarDisplayView(avatarId: lockedItems[index].id)
-                        .frame(width: 64, height: 64)
-
-                    Button(action: { move(1) }) {
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 26, height: 26)
-                            .background(Circle().fill(.ultraThinMaterial))
+                    if !premiumUnlocked {
+                        Button("Get Premium") {
+                            onRequestPremium()
+                            dismiss()
+                        }
+                        .buttonStyle(.borderedProminent)
+                    } else {
+                        Button("Close") { dismiss() }
+                            .buttonStyle(.bordered)
+                            .tint(.white)
                     }
-                    .buttonStyle(.plain)
                 }
-                Text(lockedItems[index].displayName)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.85))
-            }
-
-            if !premiumUnlocked {
-                Button("Get Premium") {
-                    onRequestPremium()
-                    dismiss()
-                }
-                .buttonStyle(.borderedProminent)
-            } else {
-                Button("Close") { dismiss() }
-                    .buttonStyle(.bordered)
+                .padding(isPhone ? 28 : 16)
+                .frame(maxWidth: min(proxy.size.width - 24, isPhone ? 360 : 220))
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: isPhone ? 32 : 20, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: isPhone ? 32 : 20, style: .continuous)
+                        .stroke(Color.white.opacity(0.18), lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.24), radius: 16, x: 0, y: 8)
             }
         }
-        .padding()
+        #if os(iOS)
+        .presentationBackground(.clear)
+        #endif
     }
 
     private func move(_ delta: Int) {
@@ -3318,29 +3691,34 @@ private struct AvatarIconView: View {
 private struct AvatarDisplayView: View {
     let avatarId: String
     var animated: Bool = true
+    var hueRotationDegrees: Double = 0
 
     var body: some View {
-        if avatarId == "avatar_robot_1" {
-            RobotAvatarView(style: .bot, animated: animated)
-                .scaleEffect(0.88)
-        } else if let kind = AvatarCatalog.robotPetKind(for: avatarId) {
-            RobotPetIconView(kind: kind, background: .clear, animated: animated)
-        } else if avatarId.hasPrefix("avatar_pet_") {
-            AvatarSpriteView(avatarId: avatarId)
-                .transaction { txn in
-                    txn.animation = nil
-                }
-                .animation(nil, value: avatarId)
-                .transaction { txn in
-                    txn.disablesAnimations = true
-                }
-        } else {
-            Image(systemName: "pawprint.fill")
-                .resizable()
-                .interpolation(.none)
-                .antialiased(false)
-                .scaledToFit()
+        Group {
+            if avatarId == "avatar_robot_1" {
+                RobotAvatarView(style: .bot, animated: animated)
+                    .scaleEffect(1.24)
+            } else if let kind = AvatarCatalog.robotPetKind(for: avatarId) {
+                RobotPetIconView(kind: kind, background: .clear, animated: animated)
+                    .scaleEffect(0.88)
+            } else if avatarId.hasPrefix("avatar_pet_") {
+                AvatarSpriteView(avatarId: avatarId)
+                    .transaction { txn in
+                        txn.animation = nil
+                    }
+                    .animation(nil, value: avatarId)
+                    .transaction { txn in
+                        txn.disablesAnimations = true
+                    }
+            } else {
+                Image(systemName: "pawprint.fill")
+                    .resizable()
+                    .interpolation(.none)
+                    .antialiased(false)
+                    .scaledToFit()
+            }
         }
+        .hueRotation(.degrees(hueRotationDegrees))
     }
 }
 
@@ -3455,17 +3833,17 @@ private struct MarqueeText: View {
                 containerWidth = w
                 startMarqueeIfNeeded(containerWidth: w)
             }
-            .onChange(of: geo.size.width) { _, new in
+            .onChange(of: geo.size.width) { new in
                 containerWidth = new
                 startMarqueeIfNeeded(containerWidth: new)
             }
-            .onChange(of: text) { _, _ in
+            .onChange(of: text) { _ in
                 animate = false
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                     startMarqueeIfNeeded(containerWidth: w)
                 }
             }
-            .onChange(of: textWidth) { _, _ in
+            .onChange(of: textWidth) { _ in
                 startMarqueeIfNeeded(containerWidth: containerWidth)
             }
         }
@@ -3483,7 +3861,7 @@ private struct MarqueeText: View {
                 GeometryReader { proxy in
                     Color.clear
                         .onAppear { textWidth = proxy.size.width }
-                        .onChange(of: proxy.size.width) { _, new in textWidth = new }
+                        .onChange(of: proxy.size.width) { new in textWidth = new }
                 }
             )
     }
@@ -3499,15 +3877,21 @@ private struct MarqueeText: View {
 
 // MARK: - Paywall View
 private struct PaywallView: View {
+    private let privacyPolicyURL = URL(string: "https://webaby.io/musiccolours/privacy")!
+    private let termsOfUseURL = URL(string: "https://www.apple.com/legal/internet-services/itunes/dev/stdeula/")!
+
     var onPurchase: () -> Void
     var onRestore: () -> Void
     var onClose: () -> Void
+    var titleText: String
     var priceText: String?
     var periodText: String?
     var isProcessing: Bool
     var errorText: String?
     var statusText: String?
+    var debugText: String?
     @State private var showPrivacyPolicy: Bool = false
+
     var body: some View {
         ScrollView {
             VStack(spacing: 10) {
@@ -3515,15 +3899,36 @@ private struct PaywallView: View {
                     .font(.caption2)
                     .multilineTextAlignment(.center)
                     .opacity(0.8)
-                if let priceText, let periodText {
-                    Text("Premium: \(priceText)/\(periodText)")
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.9))
-                } else if let priceText {
-                    Text("Premium: \(priceText)")
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.9))
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Subscription details")
+                        .font(.caption)
+                        .bold()
+
+                    SubscriptionDetailRow(label: "Title", value: titleText)
+
+                    if let periodText {
+                        SubscriptionDetailRow(label: "Subscription", value: periodText.capitalized)
+                    }
+
+                    if let priceText, let periodText {
+                        SubscriptionDetailRow(label: "Price", value: "\(priceText) per \(periodText)")
+                    } else if let priceText {
+                        SubscriptionDetailRow(label: "Price", value: priceText)
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(10)
+                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Payment will be charged to your Apple ID account at confirmation of purchase.")
+                    Text("Subscription automatically renews unless cancelled at least 24 hours before the end of the current period.")
+                }
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(0.82))
+                .frame(maxWidth: .infinity, alignment: .leading)
+
                 if let statusText {
                     Text(statusText)
                         .font(.caption2)
@@ -3536,6 +3941,15 @@ private struct PaywallView: View {
                         .foregroundStyle(.red.opacity(0.9))
                         .multilineTextAlignment(.center)
                 }
+                if let debugText {
+                    Text(debugText)
+                        .font(.system(size: 10, weight: .regular, design: .monospaced))
+                        .foregroundStyle(.yellow.opacity(0.9))
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(8)
+                        .background(Color.black.opacity(0.18), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
                 Button(isProcessing ? "Processing..." : "Buy Premium", action: onPurchase)
                     .buttonStyle(.borderedProminent)
                     .disabled(isProcessing)
@@ -3545,13 +3959,28 @@ private struct PaywallView: View {
                 Button("Not now", action: onClose)
                     .buttonStyle(.bordered)
                     .disabled(isProcessing)
-                Button(action: { showPrivacyPolicy = true }) {
-                    Text("Privacy Policy")
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.85))
+
+                VStack(spacing: 6) {
+                    Link(destination: privacyPolicyURL) {
+                        Text("Privacy Policy")
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.9))
+                    }
+                    .padding(.top, 4)
+
+                    Link(destination: termsOfUseURL) {
+                        Text("Terms of Use (EULA)")
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.9))
+                    }
+
+                    Button(action: { showPrivacyPolicy = true }) {
+                        Text("Privacy summary")
+                            .font(.caption2)
+                            .foregroundStyle(.white.opacity(0.8))
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
-                .padding(.top, 4)
             }
             .padding()
         }
@@ -3560,6 +3989,24 @@ private struct PaywallView: View {
         }
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .padding()
+    }
+}
+
+private struct SubscriptionDetailRow: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            Text("\(label):")
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(0.65))
+            Text(value)
+                .font(.caption2)
+                .foregroundStyle(.white.opacity(0.95))
+                .multilineTextAlignment(.leading)
+            Spacer(minLength: 0)
+        }
     }
 }
 
@@ -3792,6 +4239,7 @@ private extension ContentView {
 
         // Switch to gameplay screen first
         gameState = .playing
+        let countdownToken = countdownSequence
 
         // Freeze animated background hues during countdown
         countdownFrozenT = Date().timeIntervalSinceReferenceDate
@@ -3800,15 +4248,23 @@ private extension ContentView {
         countdownValue = 3
 
         // 3 -> 2 -> 1 -> GO (0)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { countdownValue = 2 }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { countdownValue = 1 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            guard countdownSequence == countdownToken, isCountingDown, gameState == .playing else { return }
+            countdownValue = 2
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            guard countdownSequence == countdownToken, isCountingDown, gameState == .playing else { return }
+            countdownValue = 1
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            guard countdownSequence == countdownToken, isCountingDown, gameState == .playing else { return }
             countdownValue = 0
             playHaptic(.success)
         }
 
         // Start the game shortly after showing GO
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.65) {
+            guard countdownSequence == countdownToken, isCountingDown, gameState == .playing else { return }
             isCountingDown = false
             countdownFrozenT = nil
 
@@ -3831,6 +4287,7 @@ private extension ContentView {
         timeRemaining = beatInterval
         // Set strikes and time by difficulty
         strikesRemaining = difficulty.allowedMistakes
+        livesRemaining = difficulty.bombLives
         if let seconds = difficulty.timeLimitSeconds {
             levelTimeRemaining = TimeInterval(seconds)
         } else {
@@ -3861,8 +4318,21 @@ private extension ContentView {
     }
     
     func presentLevelComplete() {
+        countdownSequence += 1
         stopBeatLoop()
         isCountingDown = false
+        countdownValue = 3
+        showRecordsPanel = false
+        recordsPanelMode = .manual
+        giftAvailable = false
+        giftBeatsRemaining = 0
+        pendingBonus = nil
+        upcomingBonus = nil
+        deadlyGiftActive = false
+        showHitEffect = false
+        showBonusEffect = false
+        showBombExplosionEffect = false
+        scorePopups.removeAll()
 
         // Freeze background hue while waiting
         countdownFrozenT = Date().timeIntervalSinceReferenceDate
@@ -3927,6 +4397,8 @@ private extension ContentView {
         guard gameState == .playing else { return }
 
         stopBeatLoop()
+        countdownSequence += 1
+        let countdownToken = countdownSequence
 
         // per-level reset (keep score/level)
         correctStreak = 0
@@ -3953,14 +4425,22 @@ private extension ContentView {
         isCountingDown = true
         countdownValue = 3
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { countdownValue = 2 }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { countdownValue = 1 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            guard countdownSequence == countdownToken, isCountingDown, gameState == .playing, isLevelCompletePresented == false else { return }
+            countdownValue = 2
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+            guard countdownSequence == countdownToken, isCountingDown, gameState == .playing, isLevelCompletePresented == false else { return }
+            countdownValue = 1
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            guard countdownSequence == countdownToken, isCountingDown, gameState == .playing, isLevelCompletePresented == false else { return }
             countdownValue = 0
             playHaptic(.success)
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 3.65) {
+            guard countdownSequence == countdownToken, isCountingDown, gameState == .playing, isLevelCompletePresented == false else { return }
             isCountingDown = false
             countdownFrozenT = nil
 
@@ -4066,10 +4546,11 @@ private extension ContentView {
         if isLevelCompletePresented { return }
         if showRecordsPanel { return }
         let now = Date().timeIntervalSinceReferenceDate
-        if now - lastTapTimestamp < 0.12 { return }
+        let isGiftTap = giftAvailable && color == currentTarget
+        if !isGiftTap && now - lastTapTimestamp < 0.12 { return }
         lastTapTimestamp = now
         // Handle gift bonus tap only on the gift color (locked when spawned)
-        if giftAvailable && color == currentTarget {
+        if isGiftTap {
             collectGift()
             return
         }
@@ -4095,6 +4576,8 @@ private extension ContentView {
             if correctStreak >= nextGiftIn {
                 print("[Bonus] Gift spawned. nextGiftIn reached: \(nextGiftIn)")
                 giftAvailable = true
+                // Allow immediate follow-up tap on the spawned gift color.
+                lastTapTimestamp = 0
                 correctStreak = 0
                 // Changed here as requested:
                 nextGiftIn = Int.random(in: 2...3)
@@ -4154,14 +4637,23 @@ private extension ContentView {
 
     private func collectGift() {
         if upcomingBonus == .deadly {
-            // Deadly gift ends the game
+            // Deadly gift: explosion + lose one life, game ends only when no lives left
             giftAvailable = false
             upcomingBonus = nil
             deadlyGiftActive = false
-            showBonusEffect = true // flash
-            playHaptic(.failure)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { showBonusEffect = false }
-            endGame()
+            showBombExplosionEffect = true
+            playBombExplosion()
+            shakeTrigger += 1
+            livesRemaining -= 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+                showBombExplosionEffect = false
+            }
+            if livesRemaining <= 0 {
+                playFail()
+                endGame()
+            } else {
+                playTick()
+            }
             return
         }
         let roll = Double.random(in: 0...1)
@@ -4200,6 +4692,7 @@ private extension ContentView {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { showBonusEffect = false }
         
         playSuccess()
+        avatarJoyTrigger += 1
     }
     func applyPendingBonus() {
         guard let bonus = pendingBonus else { return }
@@ -4252,7 +4745,26 @@ private extension ContentView {
     }
 
     func endGame() {
+        countdownSequence += 1
         stopBeatLoop()
+        isCountingDown = false
+        countdownValue = 3
+        countdownFrozenT = nil
+        isLevelCompletePresented = false
+        levelCompleteSpin = 0
+        levelCompletePulse = false
+        giftAvailable = false
+        giftBeatsRemaining = 0
+        pendingBonus = nil
+        upcomingBonus = nil
+        deadlyGiftActive = false
+        invincibleUntil = nil
+        slowBgUntil = nil
+        showTrackBanner = false
+        showHitEffect = false
+        showBonusEffect = false
+        showBombExplosionEffect = false
+        scorePopups.removeAll()
         gameState = .gameOver
         let current = bestScoresStore.load()
         let previousBest = current.map { $0.score }.max()
@@ -4285,6 +4797,15 @@ private extension ContentView {
 
 // MARK: - Audio (simple ticks)
 private extension ContentView {
+    func iapLog(_ message: String) {
+        print("[IAP] \(message)")
+    }
+
+    func iapLogError(_ context: String, _ error: Error) {
+        let nsError = error as NSError
+        print("[IAP] \(context) failed | domain=\(nsError.domain) code=\(nsError.code) description=\(nsError.localizedDescription)")
+    }
+
     private func bundleTrackURL(name: String, ext: String) -> URL? {
         Bundle.main.url(forResource: name, withExtension: ext)
             ?? Bundle.main.url(forResource: name, withExtension: ext, subdirectory: "SoundTracks")
@@ -4446,6 +4967,26 @@ private extension ContentView {
         }
     }
 
+    func playBombExplosion() {
+        if let url = Bundle.main.url(forResource: "bomb_explosion", withExtension: "wav")
+            ?? Bundle.main.url(forResource: "bomb_explosion", withExtension: "m4a")
+            ?? Bundle.main.url(forResource: "bomb_explosion", withExtension: "mp3")
+            ?? Bundle.main.url(forResource: "explosion", withExtension: "wav")
+            ?? Bundle.main.url(forResource: "explosion", withExtension: "m4a")
+            ?? Bundle.main.url(forResource: "explosion", withExtension: "mp3")
+            ?? Bundle.main.url(forResource: "fail", withExtension: "mp3") {
+            do {
+                let p = try AVAudioPlayer(contentsOf: url)
+                p.volume = 0.9
+                p.prepareToPlay()
+                p.play()
+                playHaptic(.failure)
+                return
+            } catch { }
+        }
+        playFail()
+    }
+
     func estimateBPMIfNeededAndThenStart() {
         isEstimatingBPM = true
         Task {
@@ -4513,11 +5054,22 @@ private extension ContentView {
     }
     
     func configureStoreKit() async {
+        iapLog("configureStoreKit start | preferredProductId=\(preferredPremiumProductId)")
         await loadProducts()
         await refreshPremiumStatus()
+        iapLog("configureStoreKit initial refresh finished | premiumUnlocked=\(premiumUnlocked)")
         if transactionListenerTask == nil {
             transactionListenerTask = Task {
+                iapLog("transaction listener started")
                 for await result in Transaction.updates {
+                    switch result {
+                    case .verified(let transaction):
+                        iapLog("transaction update verified | productId=\(transaction.productID) originalId=\(transaction.originalID) revoked=\(transaction.revocationDate != nil)")
+                    case .unverified(let transaction, let error):
+                        iapLog("transaction update unverified | productId=\(transaction.productID) originalId=\(transaction.originalID)")
+                        iapLogError("transaction update verification", error)
+                        continue
+                    }
                     guard case .verified(let transaction) = result else { continue }
                     if premiumProductIds.contains(transaction.productID) {
                         await MainActor.run {
@@ -4525,8 +5077,10 @@ private extension ContentView {
                             showPaywall = false
                             loadAvailableTracks()
                         }
+                        iapLog("premium unlocked from transaction update")
                     }
                     await transaction.finish()
+                    iapLog("transaction finished | productId=\(transaction.productID)")
                 }
             }
         }
@@ -4546,12 +5100,15 @@ private extension ContentView {
     func updateSubscriptionStatusText() async {
         guard let product = premiumProduct, let subscription = product.subscription else {
             await MainActor.run { subscriptionStatusText = nil }
+            iapLog("subscriptionStatusText skipped | product or subscription missing")
             return
         }
         do {
             let statuses = try await subscription.status
+            iapLog("subscription status fetched | count=\(statuses.count)")
             guard let status = statuses.first else {
                 await MainActor.run { subscriptionStatusText = nil }
+                iapLog("subscription status empty")
                 return
             }
             let text: String?
@@ -4570,44 +5127,82 @@ private extension ContentView {
                 text = nil
             }
             await MainActor.run { subscriptionStatusText = text }
+            iapLog("subscription state=\(String(describing: status.state)) text=\(text ?? "nil")")
         } catch {
+            iapLogError("fetch subscription status", error)
             await MainActor.run { subscriptionStatusText = nil }
         }
     }
 
     func loadProducts() async {
+        let requestedIds = Array(premiumProductIds).sorted()
+        iapLog("loadProducts request | ids=[\(requestedIds.joined(separator: ", "))]")
+        await MainActor.run {
+            subscriptionDebugText = "Requested IDs: \(requestedIds.joined(separator: ", "))\nLoading products..."
+        }
         do {
-            let products = try await Product.products(for: Array(premiumProductIds))
+            let products = try await Product.products(for: requestedIds)
+            if products.isEmpty {
+                iapLog("loadProducts response empty")
+            } else {
+                let ids = products.map(\.id).joined(separator: ", ")
+                iapLog("loadProducts response | count=\(products.count) ids=[\(ids)]")
+                for product in products {
+                    iapLog("product details | id=\(product.id) type=\(String(describing: product.type)) price=\(product.displayPrice) hasSubscription=\(product.subscription != nil)")
+                }
+            }
             await MainActor.run {
                 premiumProduct = products.first(where: { $0.id == preferredPremiumProductId }) ?? products.first
+                if products.isEmpty {
+                    purchaseError = "Subscription product not found. Check the exact Product ID and confirm the first subscription is attached to the app version in App Store Connect."
+                    subscriptionDebugText = "Requested IDs: \(requestedIds.joined(separator: ", "))\nReturned products: 0"
+                } else {
+                    let returnedIds = products.map(\.id).joined(separator: ", ")
+                    let selectedId = premiumProduct?.id ?? "none"
+                    subscriptionDebugText = "Requested IDs: \(requestedIds.joined(separator: ", "))\nReturned products: \(returnedIds)\nSelected product: \(selectedId)"
+                }
             }
             await updateSubscriptionStatusText()
         } catch {
+            iapLogError("loadProducts", error)
             await MainActor.run {
                 premiumProduct = nil
                 purchaseError = "Unable to load products. Please try again."
+                subscriptionDebugText = "Requested IDs: \(requestedIds.joined(separator: ", "))\nStoreKit error: \((error as NSError).localizedDescription)"
             }
         }
     }
 
     func refreshPremiumStatus() async {
+        iapLog("refreshPremiumStatus start")
         var isActive = false
         for await result in Transaction.currentEntitlements {
-            guard case .verified(let transaction) = result else { continue }
-            if premiumProductIds.contains(transaction.productID), transaction.revocationDate == nil {
-                isActive = true
-                break
+            switch result {
+            case .verified(let transaction):
+                iapLog("current entitlement verified | productId=\(transaction.productID) revoked=\(transaction.revocationDate != nil) expires=\(String(describing: transaction.expirationDate))")
+                if premiumProductIds.contains(transaction.productID), transaction.revocationDate == nil {
+                    isActive = true
+                    break
+                }
+            case .unverified(let transaction, let error):
+                iapLog("current entitlement unverified | productId=\(transaction.productID)")
+                iapLogError("current entitlement verification", error)
             }
         }
         if let product = premiumProduct, let subscription = product.subscription {
             if let status = try? await subscription.status.first {
+                iapLog("subscription.status.first | state=\(String(describing: status.state))")
                 switch status.state {
                 case .subscribed, .inGracePeriod, .inBillingRetryPeriod:
                     isActive = true
                 default:
                     break
                 }
+            } else {
+                iapLog("subscription.status.first unavailable")
             }
+        } else {
+            iapLog("refreshPremiumStatus | premiumProduct missing or non-subscription")
         }
         await MainActor.run {
             premiumUnlocked = isActive
@@ -4616,16 +5211,19 @@ private extension ContentView {
             }
             loadAvailableTracks()
         }
+        iapLog("refreshPremiumStatus end | premiumUnlocked=\(isActive)")
         await updateSubscriptionStatusText()
     }
 
     func purchasePremium() async {
+        iapLog("purchasePremium start")
         await MainActor.run {
             purchaseInProgress = true
             purchaseError = nil
         }
         do {
             if premiumProduct == nil {
+                iapLog("purchasePremium | premiumProduct nil, reloading")
                 await loadProducts()
             }
             guard let product = premiumProduct else {
@@ -4633,43 +5231,58 @@ private extension ContentView {
                     purchaseInProgress = false
                     purchaseError = "Premium product not available."
                 }
+                iapLog("purchasePremium aborted | product unavailable after reload")
                 return
             }
+            iapLog("purchasePremium request | id=\(product.id) price=\(product.displayPrice)")
             let result = try await product.purchase()
             switch result {
             case .success(let verification):
+                iapLog("purchasePremium result | success")
                 switch verification {
                 case .verified(let transaction):
+                    iapLog("purchase verified | productId=\(transaction.productID) originalId=\(transaction.originalID)")
                     await transaction.finish()
+                    iapLog("purchase transaction finished")
                     await refreshPremiumStatus()
                 case .unverified:
+                    iapLog("purchase unverified")
                     await MainActor.run { purchaseError = "Purchase could not be verified." }
                 }
             case .userCancelled:
+                iapLog("purchasePremium result | userCancelled")
                 break
             case .pending:
+                iapLog("purchasePremium result | pending")
                 await MainActor.run { purchaseError = "Purchase is pending approval." }
             @unknown default:
+                iapLog("purchasePremium result | unknown default")
                 await MainActor.run { purchaseError = "Purchase failed. Please try again." }
             }
         } catch {
+            iapLogError("purchasePremium", error)
             await MainActor.run { purchaseError = "Purchase failed. Please try again." }
         }
         await MainActor.run { purchaseInProgress = false }
+        iapLog("purchasePremium end")
     }
 
     func restorePurchases() async {
+        iapLog("restorePurchases start")
         await MainActor.run {
             purchaseInProgress = true
             purchaseError = nil
         }
         do {
             try await AppStore.sync()
+            iapLog("AppStore.sync success")
             await refreshPremiumStatus()
         } catch {
+            iapLogError("restorePurchases", error)
             await MainActor.run { purchaseError = "Restore failed. Please try again." }
         }
         await MainActor.run { purchaseInProgress = false }
+        iapLog("restorePurchases end")
     }
 }
 
@@ -4776,6 +5389,57 @@ private struct BonusWowEffectView: View {
     }
 }
 
+private struct BombExplosionEffectView: View {
+    @State private var shockScale: CGFloat = 0.25
+    @State private var shockOpacity: Double = 0.9
+    @State private var sparksProgress: CGFloat = 0
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .stroke(Color.orange.opacity(0.9), lineWidth: 8)
+                .frame(width: 80, height: 80)
+                .scaleEffect(shockScale)
+                .opacity(shockOpacity)
+                .blendMode(.screen)
+
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [Color.yellow.opacity(0.9), Color.orange.opacity(0.45), Color.clear],
+                        center: .center,
+                        startRadius: 4,
+                        endRadius: 120
+                    )
+                )
+                .frame(width: 180, height: 180)
+                .scaleEffect(0.85 + sparksProgress * 0.35)
+                .opacity(0.8 - Double(sparksProgress) * 0.8)
+                .blendMode(.screen)
+
+            ForEach(0..<14, id: \.self) { idx in
+                Capsule()
+                    .fill(Color.yellow.opacity(0.95))
+                    .frame(width: 3, height: 22)
+                    .offset(y: -22 - 90 * sparksProgress)
+                    .rotationEffect(.degrees(Double(idx) * (360.0 / 14.0)))
+                    .opacity(0.95 - Double(sparksProgress))
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .allowsHitTesting(false)
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.38)) {
+                shockScale = 2.5
+                shockOpacity = 0
+            }
+            withAnimation(.easeOut(duration: 0.5)) {
+                sparksProgress = 1
+            }
+        }
+    }
+}
+
 private struct ConfettiPiece: Identifiable {
     let id = UUID()
     let start: CGPoint = CGPoint(x: CGFloat.random(in: 0.2...0.8), y: 0.3)
@@ -4843,7 +5507,7 @@ private struct ShakeEffect: ViewModifier {
     func body(content: Content) -> some View {
         content
             .offset(x: offset)
-            .onChange(of: trigger) { _, _ in
+            .onChange(of: trigger) { _ in
                 withAnimation(.default.speed(3)) {
                     offset = 12
                 }
